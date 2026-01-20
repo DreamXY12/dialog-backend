@@ -1,0 +1,32 @@
+Dia-LOG system is an evaluation tool for diabetes onset using the cutting-edge machine learning algorithm developed by Dr. Yang Lin's research team from Hong Kong Polytechnic University.
+
+To evaluate your diabetes onset risk, you can input your blood test results in the following items to evaluate\
+you risk level in a two-year five-year and ten-year period:
+
+HbA1c in Blood %
+Fasting Glucose in Serum or Plasma mmol/L
+Cholesterol in HDL in Serum or Plasma mmol/L
+Cholesterol in Serum or Plasma mmol/L
+Cholesterol in LDL in Serum or Plasma by Calculation mmol/L
+Creatinine Renal Clearance mmol/L
+Triglyceride in Serum or Plasma mmol/L
+Potassium in Serum or Plasma mmol/L
+Latest Lab Test Date
+
+Note you don't need to fill out all the required tests field, you can leave it blank if you don't know
+the result.
+For example, you can input:
+I want to know my diabetes progression risk within five years, my blood test of HbA1c is 4.5%, my Cholesterol in 4.65 mmol/L, the test date is Sep 9th, 2023.
+
+After the evaluation, you can also enquiry your result searched by date.
+For example, you can ask:
+What is my evaluation result for the test on September 9th, 2023?
+
+You can check your overall health status and ask for health advice.
+For example, you can ask:
+How is my health status, do I need to book a medical appointment with doctor?
+Our system will automatically analyze the your health status based on your personal health status and provide you appropriate information.
+
+A sensitive check is also available, you can check how much risk will be reduced if you improve your health status.
+For example, you can ask:
+If I lower my HbA1c level for 1%, how much improvement can be made on my health status, the test is Sep 9th, 2023

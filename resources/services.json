@@ -1,0 +1,61 @@
+[
+	{
+		"name": "analysis",
+		"description": "calculate the risk level of diabetes onset based on user input of the blood test results, the function is called only when there is some blood test results.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"labtest_date": {
+                    "type": "string",
+                    "description": "blood test date in format yyyy-mm-dd"
+                },
+                "cholesHDL":  {
+                    "type": "number",
+                    "description": "blood test result for Cholesterol in HDL in Serum or Plasma"
+                },
+                "choles": {
+                    "type": "number",
+                    "description": "blood test result for Cholesterol in Serum or Plasma"
+                },
+                "creatinine": {
+                    "type": "number",
+                    "description": "blood test for Creatinine Renal Clearance"
+                },
+                "fastingGlucose": {
+                    "type": "number",
+                    "description": "blood test result for Fasting Glucose in Serum or Plasma"
+                },
+                "triglyceride": {
+                    "type": "number",
+                    "description": "blood test result for Triglyceride in Serum or Plasma"
+                },
+                "potassiumSerumOrPlasma": {
+                    "type": "number",
+                    "description": "blood test result for Potassium in Serum or Plasma"
+                },
+                "HBA1C": {
+                    "type": "number",
+                    "description": "blood test result for HbA1c in Blood in %"
+                },
+                "time_spec": {
+                    "type": "number",
+                    "description": "the length of time period about which the use want to know the diabetes onset risk"
+                }
+			}
+		}
+	},
+    {
+        "name": "advise",
+        "description": "give health advise on diabetes health management or answer the patients enquiry about the health status",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "enquiry": {
+                    "type": "string",
+                    "description": "all the user input string"
+                }
+            }
+        }
+
+    }
+]

@@ -1,0 +1,7 @@
+*.ipynb
+*config.yaml
+checkpoint/*
+.idea*
+*__pycache__*
+*.DS_Store
+test.json
