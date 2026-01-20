@@ -3,5 +3,14 @@
 checkpoint/*
 .idea*
 *__pycache__*
-*.DS_Store
-test.json
+# Python virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment variables
+.env
+
