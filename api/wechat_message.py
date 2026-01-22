@@ -139,11 +139,11 @@ def send_message(to_number, body_text, role, is_fixed=0,is_register=0):
 
         store_message(to_number, (role, body_text))
         logger.info(f"Message sent to {to_number}: {yue_body_text}")
-        return {"code": 200, "data": {"message": yue_body_text, "role": role, "to_number": to_number}, "error_info": "","is_register":is_register}
+        return {"code": 200, "data": {"message": yue_body_text, "role": role, "to_number": to_number}, "error_info": "","is_register":is_register,"success": 1}
     except Exception as e:
         logger.error(f"Error sending message to {to_number}: {e}")
         print(f"Error sending message to {to_number}: {e}")
-        return {"code": -1, "data": {"message": "接收消息失敗，請稍後重試", "role": role, "to_number": to_number},
+        return {"code": -1, "data": {"message": "接收消息失敗，請稍後重試", "role": role, "to_number": to_number,"success": 0},
                 "error_info": str(e),"is_register":is_register}
 
 
@@ -604,7 +604,8 @@ async def reply(request: Request, db: Annotated[Connection, Depends(get_db)]):
         question = data["prompt"]
         phone_number = data["phone_number"]
         user_info=data["user_info"]
-        set_user_profile(phone_number, user_info)
+        if user_info is not None:
+            set_user_profile(phone_number, user_info)
 
         logger.info(f"Received message from {phone_number}: {question}")
 
