@@ -1,4 +1,4 @@
-
+import requests
 from typing_extensions import Annotated
 from sqlalchemy.orm import Session as Connection
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Body, Query
@@ -27,6 +27,15 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 async def root():
+    #测试后端申请微信端口
+    wx_item_data={
+        "grant_type": "client_credential",
+        "appid": "wx6a354e75f350785c",
+        "secret": "2fbf6080ac841f40efb718e49454c626"
+    }
+    response = requests.post("https://api.weixin.qq.com/cgi-bin/stable_token",wx_item_data)
+    print(f"Status Code: {response.status_code}")
+    print(f"Response: {response.json()}")
     return {"message": "hello dialog !"}
 
 origins = ["*"]
