@@ -36,6 +36,9 @@ async def root():
     response = requests.post("https://api.weixin.qq.com/cgi-bin/stable_token",wx_item_data)
     print(f"Status Code: {response.status_code}")
     print(f"Response: {response.json()}")
+    response=requests.get("https://api.weixin.qq.com/cgi-bin/token",wx_item_data)
+    print(f"Status Code: {response.status_code}")
+    print(f"Response: {response.json()}")
     return {"message": "hello dialog !"}
 
 origins = ["*"]
