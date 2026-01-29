@@ -39,7 +39,7 @@ async def root():
 
     access_token=response.get("access_token")
     url=f"https://api.weixin.qq.com/cgi-bin/user/get?access_token={access_token}"
-    response=requests.get(url)
+    response=requests.json().get(url)
     print("返回的关注列表",response.json())
 
     return {"message": "hello dialog !"}
