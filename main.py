@@ -33,12 +33,12 @@ async def root():
         "appid": "wx6a354e75f350785c",
         "secret": "2fbf6080ac841f40efb718e49454c626"
     }
-    response = requests.post("https://api.weixin.qq.com/cgi-bin/stable_token",wx_item_data)
+    response = requests.post("https://api.weixin.qq.com/cgi-bin/stable_token",json=wx_item_data)
     print(f"Status Code: {response.status_code}")
     print(f"Response: {response.json()}")
-    response=requests.get("https://api.weixin.qq.com/cgi-bin/token",wx_item_data)
-    print(f"Status Code: {response.status_code}")
-    print(f"Response: {response.json()}")
+
+    access_token=response.get("access_token")
+
     return {"message": "hello dialog !"}
 
 origins = ["*"]
