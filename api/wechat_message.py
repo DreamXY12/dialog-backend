@@ -9,7 +9,8 @@ from sql.start import get_db
 import sql.crud as crud
 from api.user import sign_up, CreateUser
 from api.session import response_from_llm
-from sql.models import Session, Query
+from sql.models import Session
+from sql import models
 from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.orm import Session as Connection
@@ -1596,7 +1597,7 @@ async def handle_registered_user(user, phone_number, question, db):
             session = crud.create_session(db, db_session)
 
         # 创建查询
-        q = Query(session_key=session.session_key, enquiry=question)
+        q = models.Query(session_key=session.session_key, enquiry=question)
         q = crud.create_query(db, q)
 
         # 获取LLM响应

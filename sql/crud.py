@@ -123,6 +123,14 @@ def get_latest_session(db: Connection, user_id: int):
         .first()
     return result
 
+# 用于获取病人的对话，这里修改了，user_id指的是用户独一无二的登录码，原来是user表的主键
+def get_latest_session_new(db: Connection, user_id: int):
+    result = db.query(Session)\
+        .filter(Session.user_id == user_id)\
+        .order_by(desc(Session.session_key))\
+        .first()
+    return result
+
 
 def update_case_result(db: Connection, case: Case, result: str) -> Case:
 
