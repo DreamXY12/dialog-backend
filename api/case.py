@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.orm import Session as Connection
 from typing_extensions import Annotated
 from fastapi import Body, Depends
-from typing import List
+from typing import List, Any
 
 from schema.case import UploadBody, DashboardItem, MarginResponse, MarginRequest, HistoryResponse, DenseResponse
 from core.risk_engine import RiskEngine
@@ -343,50 +343,163 @@ RISK_THRESHOLD = {
 @router.post("/upload")
 def upload(
     upload_body: Annotated[UploadBody, Body],
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[Any, Depends(get_current_user)],
     db: Annotated[Connection, Depends(get_db)]
 ):
-    user_id = user.user_id
-    db_case = Case(**upload_body.dict(), user_id=user_id)
+    # 根据用户类型获取用户ID
+    if hasattr(user, 'user_id'):
+        user_id = user.user_id
+    elif hasattr(user, 'patient_id'):
+        user_id = user.patient_id
+    elif hasattr(user, 'nurse_id'):
+        user_id = user.nurse_id
+    else:
+        raise HTTPException(status_code=400, detail="Invalid user type")
+    # 转换日期格式
+    from datetime import datetime
+    upload_data = upload_body.dict()
+    if upload_data.get('test_date'):
+        upload_data['test_date'] = datetime.strptime(upload_data['test_date'], '%Y-%m-%d').date()
+    else:
+        upload_data['test_date'] = datetime.now().date()
+    db_case = Case(**upload_data, user_id=user_id)
     db_case = create_case(db, db_case)
 
     return {"user_id": user_id, "case_id": db_case.case_id}
 
-@router.get("/analysis")
+@router.post("/analysis")
 def analysis(
-    user: Annotated[User, Depends(get_current_user)],
-	case_id: Annotated[int, Body],
+    upload_body: Annotated[UploadBody, Body],
+    user: Annotated[Any, Depends(get_current_user)],
     db: Annotated[Connection, Depends(get_db)]
 ):
-    db_case: Case = get_case_by_id(db, case_id)
-    if db_case == None:
-        raise HTTPException(status_code=406, detail="please upload your test result first")
-    re = RiskEngine(case=db_case)
+    # 根据用户类型获取用户ID
+    if hasattr(user, 'user_id'):
+        user_id = user.user_id
+    elif hasattr(user, 'patient_id'):
+        user_id = user.patient_id
+    elif hasattr(user, 'nurse_id'):
+        user_id = user.nurse_id
+    else:
+        raise HTTPException(status_code=400, detail="Invalid user type")
+    
+    # 创建临时Case对象用于分析
+    from datetime import datetime
+    upload_data = upload_body.dict()
+    if upload_data.get('test_date'):
+        upload_data['test_date'] = datetime.strptime(upload_data['test_date'], '%Y-%m-%d').date()
+    else:
+        upload_data['test_date'] = datetime.now().date()
+    temp_case = Case(**upload_data, user_id=user_id)
+    
+    # 进行风险分析
+    re = RiskEngine(case=temp_case)
     result, score = re()
-    db_case.analysis_result = result
-    db_case.score = score
-    # write to database
+    
+    # 确定风险等级
+    risk_level = "低风险"
+    if score >= RISK_THRESHOLD[temp_case.time_spec][1]:
+        risk_level = "高风险"
+    elif score >= RISK_THRESHOLD[temp_case.time_spec][0]:
+        risk_level = "中风险"
+    
+    # 保存分析结果到数据库
+    # 查找最近上传的case
+    latest_case = get_latest_case(db, user_id)
+    if latest_case:
+        # 更新分析结果
+        latest_case.analysis_result = result
+        latest_case.score = score
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"保存分析结果失败: {e}")
+    
+    return {
+        "riskLevel": risk_level,
+        "riskScore": score,
+        "result": risk_map.get(result, 3)
+    }
+
+@router.get("/analysis")
+def analysis_by_case_id(
+    case_id: Annotated[int, Query()],
+    user: Annotated[Any, Depends(get_current_user)],
+    db: Annotated[Connection, Depends(get_db)]
+):
+    # 根据用户类型获取用户ID
+    if hasattr(user, 'user_id'):
+        user_id = user.user_id
+    elif hasattr(user, 'patient_id'):
+        user_id = user.patient_id
+    elif hasattr(user, 'nurse_id'):
+        user_id = user.nurse_id
+    else:
+        raise HTTPException(status_code=400, detail="Invalid user type")
+    
+    # 根据case_id获取case
+    case = get_case_by_id(db, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    
+    # 验证case属于当前用户
+    if case.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # 进行风险分析
+    re = RiskEngine(case=case)
+    result, score = re()
+    
+    # 确定风险等级
+    risk_level = "低风险"
+    if score >= RISK_THRESHOLD[case.time_spec][1]:
+        risk_level = "高风险"
+    elif score >= RISK_THRESHOLD[case.time_spec][0]:
+        risk_level = "中风险"
+    
+    # 保存分析结果到数据库
+    case.analysis_result = result
+    case.score = score
     try:
         db.commit()
     except Exception as e:
         db.rollback()
-        raise e
-    return {"result": risk_map.get(result, 3)}
+        print(f"保存分析结果失败: {e}")
+    
+    return {
+        "result": result
+    }
 
 @router.get("/item", response_model=List[DashboardItem])
 def get_list(
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[Any, Depends(get_current_user)],
     db: Annotated[Connection, Depends(get_db)]
 ):  
     result = []
     cases: List[Case] = get_cases_by_user(db, user)
     for c in cases:
-        result.append(DashboardItem(case_id=c.case_id, labtest_date=c.labtest_date, time_spec=c.time_spec, analysis_result=risk_map.get(c.analysis_result,3), score=c.score))
+        result.append(DashboardItem(
+            case_id=c.case_id, 
+            labtest_date=c.test_date, 
+            create_time=c.create_time,
+            time_spec=c.time_spec, 
+            analysis_result=risk_map.get(c.analysis_result,3), 
+            score=c.score,
+            hba1c=c.hba1c,
+            fasting_glucose=c.fasting_glucose,
+            hdl_cholesterol=c.hdl_cholesterol,
+            total_cholesterol=c.total_cholesterol,
+            ldl_cholesterol=c.ldl_cholesterol,
+            creatinine=c.creatinine,
+            triglyceride=c.triglyceride,
+            potassium=c.potassium
+        ))
     return result
 
 @router.get("/dense", response_model=DenseResponse)
 def get_dense(
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[Any, Depends(get_current_user)],
     db: Annotated[Connection, Depends(get_db)],
     case_id: Annotated[int, Body]
 ):	
@@ -408,7 +521,7 @@ def get_dense(
 
 @router.post("/margin", response_model=MarginResponse, summary="deprecated, do not use this api for now")
 def get_margin(
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[Any, Depends(get_current_user)],
     db: Annotated[Connection, Depends(get_db)],
     rq: MarginRequest
 ):
@@ -422,7 +535,7 @@ def get_margin(
 
 @router.post("/history", response_model=List[HistoryResponse])
 def get_history(
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[Any, Depends(get_current_user)],
     time_spec: Annotated[int, Query()],
     db: Annotated[Connection, Depends(get_db)]
 ):	
@@ -430,5 +543,5 @@ def get_history(
     cases: List[Case]= get_cases_by_user(db, user)
     for c in cases:
         if c.time_spec == time_spec:
-            result.append(HistoryResponse(labtest_date=c.labtest_date, score=c.score))
+            result.append(HistoryResponse(labtest_date=c.test_date, score=c.score))
     return result

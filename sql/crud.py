@@ -9,13 +9,18 @@ from typing import Union
 from sqlalchemy import select, update, desc, JSON, func, text
 from sql.start import engine, Base
 from sql.models import User, Case, Query, Session, Invitation
+from sql.login_models import Patient, Nurse, LoginCode, PatientAIDialogHistory, BloodGlucoseRecord
 from sqlalchemy.orm import Session as Connection
 from datetime import datetime
 
 '''clean work space'''
 def init_models():
-    Base.metadata.drop_all(engine)
+    # 只创建表，不删除表
+    # 这样可以保留数据库中的数据
+    
+    # 创建所有表（如果不存在）
     Base.metadata.create_all(engine)
+    print("数据库表初始化完成")
 
 '''
 invitation code operation
@@ -87,10 +92,24 @@ def create_case(db: Connection, case: Case):
         db.rollback()
         raise e
 
-def get_cases_by_user(db: Connection, user: User):
+def get_cases_by_user(db: Connection, user):
+    # 根据用户类型获取用户ID
+    if hasattr(user, 'user_id'):
+        user_id = user.user_id
+    elif hasattr(user, 'patient_id'):
+        user_id = user.patient_id
+    elif hasattr(user, 'nurse_id'):
+        user_id = user.nurse_id
+    else:
+        raise ValueError("Invalid user type")
+    
     stmt = (
-        select(Case.case_id, Case.labtest_date, Case.time_spec, Case.analysis_result, Case.score)\
-        .where(Case.user_id == user.user_id)\
+        select(Case.case_id, Case.test_date, Case.create_time, Case.time_spec, Case.analysis_result, Case.score, 
+               Case.hba1c, Case.fasting_glucose, Case.hdl_cholesterol, 
+               Case.total_cholesterol, Case.ldl_cholesterol, Case.creatinine, 
+               Case.triglyceride, Case.potassium)\
+        .where(Case.user_id == user_id)\
+        .order_by(Case.create_time.desc())\
     )
     result = db.execute(stmt)
 
@@ -198,9 +217,19 @@ def get_queries_by_session(db: Connection, session_key: str):
             .all()
     return result
 
-def get_total_queries(db: Connection, user:User) -> int:
+def get_total_queries(db: Connection, user) -> int:
+    # 根据用户类型获取用户ID
+    if hasattr(user, 'user_id'):
+        user_id = user.user_id
+    elif hasattr(user, 'patient_id'):
+        user_id = user.patient_id
+    elif hasattr(user, 'nurse_id'):
+        user_id = user.nurse_id
+    else:
+        raise ValueError("Invalid user type")
+    
     rows = db.query(Session, Query)\
-    .filter(Session.user_id == user.user_id)\
+    .filter(Session.user_id == user_id)\
     .filter(Query.session_key == Session.session_key)\
     .count()
     return rows

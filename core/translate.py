@@ -1,12 +1,18 @@
 '''
 Description: GCP translate API for translation services, base language is English
 '''
-from google.cloud import translate_v2 as translate
-import os
-from deep_translator import GoogleTranslator
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "resources/iabot-386300-3d0a88bf4d0f.json"
+# 尝试导入 Google Cloud Translate API，如果失败则只使用 deep_translator
+try:
+    from google.cloud import translate_v2 as translate
+    import os
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "resources/iabot-386300-3d0a88bf4d0f.json"
+    has_google_cloud = True
+    #google_translate_client = translate.Client()
+except ImportError:
+    has_google_cloud = False
+    print("Warning: Google Cloud Translate not available, using deep_translator only")
 
-#google_translate_client = translate.Client()
+from deep_translator import GoogleTranslator
 
 #将一些提示词固定下来，不让翻译软件翻译
 HEALTH_INFO_DICT={

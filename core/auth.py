@@ -3,7 +3,7 @@ import hashlib,base64
 from sqlalchemy.orm import Session as Connection
 
 from datetime import datetime, timedelta
-from typing import Annotated, Union
+from typing import Annotated, Union, Any
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -14,12 +14,13 @@ from schema.token import Token, TokenData
 
 from sql.start import get_db
 from sql.models import User, Case, Query, Session
+from sql.login_models import Patient, Nurse
 from sql.crud import get_user_by_username, get_session_by_key
 from config import get_parameter
 ##CONSTANT VARIABLE
 
 #测试环境专用
-SECRET_KEY = get_parameter("web", "secrete_key") or "dev_secret_key"
+SECRET_KEY = get_parameter("web", "secrete_key") or "your-secret-key-here-change-in-production"
 ALGORITHM = get_parameter("web", "algorithm") or "HS256"
 
 ACCESS_TOKEN_EXPIRE_MINUTES = get_parameter("web", "expire_minute") or 60
@@ -78,7 +79,7 @@ def authenticate_user(
 def get_current_user(
         token: Annotated[str, Depends(oauth2_scheme)],
         db: Annotated[Connection, Depends(get_db)]
-):
+) -> Any:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -86,13 +87,22 @@ def get_current_user(
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        user_id: str = payload.get("sub")
+        user_type: str = payload.get("user_type")
+        if user_id is None:
             raise credentials_exception
-        token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
-    user = get_user_by_username(db, username=token_data.username)
+    
+    # 根据用户类型查找对应的用户
+    if user_type == "patient":
+        user = db.query(Patient).filter(Patient.patient_id == int(user_id)).first()
+    elif user_type == "nurse":
+        user = db.query(Nurse).filter(Nurse.nurse_id == int(user_id)).first()
+    else:
+        # 尝试查找User表
+        user = get_user_by_username(db, user_id)
+    
     if user is None:
         raise credentials_exception
     return user

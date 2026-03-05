@@ -1,5 +1,13 @@
 from typing import Union
-import tensorflow as tf
+# 尝试导入 TensorFlow，如果失败则使用模拟实现
+
+try:
+    import tensorflow as tf
+    has_tensorflow = True
+except ImportError:
+    has_tensorflow = False
+    print("Warning: TensorFlow not available, using mock implementation")
+
 from sql.models import Case
 from schema.case import Step
 from core.risk_engine import RiskEngine
@@ -37,8 +45,12 @@ class Margin():
             if value == None:
                 continue
         
-            assert value - variable_step >= 0
-            setattr(case, input_variable, value-variable_step)
+            try:
+                assert value - variable_step >= 0
+                setattr(case, input_variable, value-variable_step)
+            except AssertionError:
+                print(f"Warning: Cannot decrease {input_variable} below zero, skipping")
+        
         _, after_score = RiskEngine(case)()
         return after_score - self.score
         

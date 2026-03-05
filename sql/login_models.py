@@ -140,7 +140,7 @@ class Patient(TimeStampMixIn, Base):
     def age(self):
         """计算年龄"""
         if self.date_of_birth:
-            today = datetime.now().date()
+            today = datetime.datetime.now().date()
             age = today.year - self.date_of_birth.year
             # 如果生日还没到，年龄减1
             if (today.month, today.day) < (self.date_of_birth.month, self.date_of_birth.day):
@@ -208,4 +208,40 @@ class PatientAIDialogHistory(TimeStampMixIn, Base):
 
     def __repr__(self):
         return f"<PatientAIDialogHistory(history_id={self.history_id}, patient_login_code={self.patient_login_code})>"
+
+
+class BloodGlucoseRecord(Base):
+    """血糖记录模型"""
+    __tablename__ = "blood_glucose_records"
+    
+    id: Mapped[int] = mapped_column(
+        Integer, 
+        primary_key=True, 
+        index=True,
+        autoincrement=True,
+        comment='记录ID'
+    )
+    patient_login_code: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        comment='患者登录码'
+    )
+    value: Mapped[float] = mapped_column(
+        DECIMAL(5, 2),
+        nullable=False,
+        comment='血糖值 (mmol/L)'
+    )
+    period: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        comment='测量时段: 空腹、餐前、餐后、睡前'
+    )
+    recorded_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        comment='记录时间'
+    )
+    
+    def __repr__(self):
+        return f"<BloodGlucoseRecord(id={self.id}, patient_login_code={self.patient_login_code}, value={self.value})>"
 

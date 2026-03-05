@@ -46,10 +46,6 @@ class User(TimeStampMixIn, Base):
     weight: Mapped[Optional[float]] = mapped_column(Double)
 
     invitation_code: Mapped["Invitation"] = relationship(back_populates="users")
-    cases: Mapped["Case"] = relationship(
-        back_populates="user",
-        cascade="all, delete-orphan"
-    )
     
     sessions: Mapped["Session"] = relationship(
         back_populates="user",
@@ -68,25 +64,24 @@ class User(TimeStampMixIn, Base):
 
 
 class Case(TimeStampMixIn,Base):
-    __tablename__ = 'case'
+    __tablename__ = 'patient_case'
     
-    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("user.user_id"))
+    user_id: Mapped[Optional[int]] = mapped_column()
     case_id: Mapped[Optional[int]] = mapped_column(primary_key=True, autoincrement=True, index=True)
 
-    cholesHDL: Mapped[Optional[float]]
-    choles: Mapped[Optional[float]]
-    creatinine: Mapped[Optional[float]]
-    fastingGlucose: Mapped[Optional[float]]
-    triglyceride: Mapped[Optional[float]]
-    cholesLDL_1: Mapped[Optional[float]]
-    potassiumSerumOrPlasma: Mapped[Optional[float]]
-    HBA1C: Mapped[Optional[float]]
+    hba1c: Mapped[Optional[float]] = mapped_column()
+    fasting_glucose: Mapped[Optional[float]] = mapped_column()
+    hdl_cholesterol: Mapped[Optional[float]] = mapped_column()
+    total_cholesterol: Mapped[Optional[float]] = mapped_column()
+    ldl_cholesterol: Mapped[Optional[float]] = mapped_column()
+    creatinine: Mapped[Optional[float]] = mapped_column()
+    triglyceride: Mapped[Optional[float]] = mapped_column()
+    potassium: Mapped[Optional[float]] = mapped_column()
     
     time_spec: Mapped[int] = mapped_column(Integer)
-    labtest_date: Mapped[Date]= mapped_column(Date)
+    test_date: Mapped[Date] = mapped_column(Date)
     analysis_result: Mapped[Optional[str]] = mapped_column(String(30))
     score: Mapped[Optional[float]] = mapped_column(Float)
-    user: Mapped["User"] = relationship(back_populates="cases", lazy="selectin")
 
 
 class Session(TimeStampMixIn, Base):

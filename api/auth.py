@@ -17,7 +17,7 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 # 配置
-SECRET_KEY = get_parameter("web","secrete_key")
+SECRET_KEY = get_parameter("web","secrete_key") or "your-secret-key-here-change-in-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60*24*7
 
@@ -27,12 +27,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # 工具函数
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return plain_password == hashed_password
     return pwd_context.verify(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    # 限制密码长度为72字节，bcrypt的最大长度限制
+    return pwd_context.hash(password[:72])
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -109,13 +109,23 @@ def get_nurse_by_login_code(db: Session, login_code: str):
 def authenticate_user(db: Session, login_code: str, password: str):
     # 尝试患者
     patient = get_patient_by_login_code(db, login_code)
-    if patient and verify_password(password, patient.hashed_password):
-        return patient, UserType.PATIENT
+    if patient:
+        # 首先尝试明文密码验证
+        if patient.hashed_password == password:
+            return patient, UserType.PATIENT
+        # 然后尝试加密密码验证
+        elif verify_password(password, patient.hashed_password):
+            return patient, UserType.PATIENT
 
     # 尝试护士
     nurse = get_nurse_by_login_code(db, login_code)
-    if nurse and verify_password(password, nurse.hashed_password):
-        return nurse, UserType.NURSE
+    if nurse:
+        # 首先尝试明文密码验证
+        if nurse.hashed_password == password:
+            return nurse, UserType.NURSE
+        # 然后尝试加密密码验证
+        elif verify_password(password, nurse.hashed_password):
+            return nurse, UserType.NURSE
 
     return None, None
 

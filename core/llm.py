@@ -8,14 +8,14 @@ from requests.auth import HTTPBasicAuth
 
 
 #修改后的代码
-BASE_URL = get_parameter("ollama", "base_url")
-MODEL_ID = get_parameter("ollama", "model_id")
+BASE_URL = get_parameter("ollama", "base_url") or "http://localhost:11434"
+MODEL_ID = get_parameter("ollama", "model_id") or "llama3"
 #测试输出
-# print("测试是否取到模型名称和ID")
-# print("MODEL_ID =", MODEL_ID)
-# print("BASE_URL =", BASE_URL)
-AUTH_USERNAME = get_parameter("ollama", "auth_username") 
-AUTH_PASSWORD = get_parameter("ollama", "auth_password")
+print("测试是否取到模型名称和ID")
+print("MODEL_ID =", MODEL_ID)
+print("BASE_URL =", BASE_URL)
+AUTH_USERNAME = get_parameter("ollama", "auth_username") or ""
+AUTH_PASSWORD = get_parameter("ollama", "auth_password") or ""
 
 #以前的代码
 # BASE_URL = get_parameter("ollama", "base_url")
@@ -26,13 +26,22 @@ AUTH_PASSWORD = get_parameter("ollama", "auth_password")
 def serve_model(model_id):
     # session = requests.Session()
     # session.auth = HTTPBasicAuth("dialog", "dialog#Y27u")
-    if model_id.startswith("gpt"):
+    if model_id and model_id.startswith("gpt"):
         raise NotImplementedError("GPT is not allowed for Chinese Region")
     else:
+        # 如果没有提供有效的模型ID，使用默认模型
+        if not model_id:
+            model_id = "llama3"
+        
+        # 如果没有提供有效的认证信息，不使用认证
+        auth = None
+        if AUTH_USERNAME and AUTH_PASSWORD:
+            auth = HTTPBasicAuth(AUTH_USERNAME, AUTH_PASSWORD)
+        
         llm = Ollama(
             model=model_id,
-            base_url = BASE_URL,
-            auth=HTTPBasicAuth(AUTH_USERNAME, AUTH_PASSWORD)
+            base_url=BASE_URL,
+            auth=auth
             )
     return llm
 

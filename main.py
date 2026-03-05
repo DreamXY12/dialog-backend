@@ -21,6 +21,7 @@ PASSWORD = get_parameter("rdb", "password")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # load the resources
+    init_models()
     yield
 
 app = FastAPI(lifespan=lifespan)

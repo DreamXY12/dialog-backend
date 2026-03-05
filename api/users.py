@@ -298,13 +298,12 @@ async def get_nurse_patients(nurse_id: int, db: Session = Depends(get_db)):
     return get_patients_by_nurse(db, nurse_id)
 
 
-# 当前用户信息
-@router.get("/me/patient", response_model=PatientResponse)
-async def get_current_patient(
+# 依赖函数：获取当前患者信息
+def get_current_patient_info(
         token: str = Depends(oauth2_scheme),
         db: Session = Depends(get_db)
-):
-    """获取当前患者信息"""
+) -> dict:
+    """获取当前患者信息作为依赖"""
     payload = decode_token(token)
     if not payload or payload.get("user_type") != "patient":
         raise HTTPException(
@@ -314,6 +313,26 @@ async def get_current_patient(
 
     patient_id = int(payload.get("sub"))
     patient = get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="患者不存在"
+        )
+
+    return {
+        "login_code": patient.login_code,
+        "patient_id": patient.patient_id,
+        "full_name": patient.full_name
+    }
+
+# 当前用户信息
+@router.get("/me/patient", response_model=PatientResponse)
+async def get_current_patient(
+        current_user: dict = Depends(get_current_patient_info),
+        db: Session = Depends(get_db)
+):
+    """获取当前患者信息"""
+    patient = get_patient_by_id(db, current_user["patient_id"])
     if not patient:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -555,7 +574,24 @@ async def update_current_patient_first_login(
         )
 
     logger.info(f"更新成功: patient_id={patient.patient_id}")
-    #return patient
+    # 返回一个简单的字典，而不是 patient 对象，以避免序列化问题
+    return {
+        "patient_id": patient.patient_id,
+        "login_code": patient.login_code,
+        "first_name": patient.first_name,
+        "last_name": patient.last_name,
+        "height": float(patient.height) if patient.height else None,
+        "weight": float(patient.weight) if patient.weight else None,
+        "date_of_birth": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
+        "sex": patient.sex,
+        "family_history": patient.family_history,
+        "smoking_status": patient.smoking_status,
+        "drinking_history": patient.drinking_history,
+        "assigned_nurse_id": patient.assigned_nurse_id,
+        "full_name": patient.full_name,
+        "age": patient.age,
+        "bmi": patient.bmi
+    }
 
     # except HTTPException:
     #     raise
@@ -566,3 +602,229 @@ async def update_current_patient_first_login(
     #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
     #         detail=f"服务器内部错误: {str(e)}"
     #     )
+
+
+# ==================== 血糖记录相关 API ====================
+from sql.login_models import BloodGlucoseRecord
+
+
+@router.post("/patients/me/blood-glucose", response_model=dict)
+async def add_blood_glucose_record(
+    record: dict,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_patient_info)
+):
+    """添加血糖记录"""
+    try:
+        logger.info(f"接收到添加血糖记录请求: {record}")
+        logger.info(f"当前用户信息: {current_user}")
+        
+        # 验证必填字段
+        if 'value' not in record or record['value'] is None:
+            logger.error("血糖值不能为空")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="血糖值不能为空"
+            )
+        
+        if 'period' not in record or record['period'] is None:
+            logger.error("测量时段不能为空")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="测量时段不能为空"
+            )
+        
+        # 验证血糖值格式
+        try:
+            glucose_value = float(record['value'])
+            logger.info(f"验证血糖值: {glucose_value}")
+        except (ValueError, TypeError):
+            logger.error(f"血糖值格式错误: {record['value']}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="血糖值必须是数字"
+            )
+        
+        # 验证测量时段
+        valid_periods = ['空腹', '餐前', '餐后', '睡前']
+        if record['period'] not in valid_periods:
+            logger.error(f"测量时段无效: {record['period']}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"测量时段必须是以下之一: {', '.join(valid_periods)}"
+            )
+        
+        # 处理时间字段
+        recorded_at = record.get('time')
+        if isinstance(recorded_at, str):
+            try:
+                from datetime import datetime
+                recorded_at = datetime.fromisoformat(recorded_at)
+                logger.info(f"解析时间成功: {recorded_at}")
+            except Exception as e:
+                logger.error(f"时间格式错误: {e}")
+                recorded_at = datetime.now()
+                logger.info(f"使用当前时间: {recorded_at}")
+        elif recorded_at is None:
+            from datetime import datetime
+            recorded_at = datetime.now()
+            logger.info(f"使用当前时间: {recorded_at}")
+        
+        logger.info(f"准备创建血糖记录: patient_login_code={current_user['login_code']}, value={glucose_value}, period={record['period']}, recorded_at={recorded_at}")
+        
+        new_record = BloodGlucoseRecord(
+            patient_login_code=current_user['login_code'],
+            value=glucose_value,
+            period=record['period'],
+            recorded_at=recorded_at
+        )
+        
+        logger.info(f"创建BloodGlucoseRecord对象成功")
+        
+        db.add(new_record)
+        logger.info("添加到数据库会话")
+        
+        db.commit()
+        logger.info("数据库提交成功")
+        
+        db.refresh(new_record)
+        logger.info(f"刷新对象成功: id={new_record.id}")
+        
+        logger.info(f"血糖记录添加成功: id={new_record.id}, value={new_record.value}")
+        
+        return {
+            "success": True,
+            "message": "血糖记录添加成功",
+            "data": {
+                "id": new_record.id,
+                "value": float(new_record.value),
+                "period": new_record.period,
+                "recorded_at": new_record.recorded_at.isoformat()
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"添加血糖记录失败: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="添加血糖记录失败"
+        )
+
+
+@router.get("/patients/me/blood-glucose", response_model=dict)
+async def get_blood_glucose_records(
+    limit: int = 20,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_patient_info)
+):
+    """获取血糖记录列表"""
+    try:
+        records = db.query(BloodGlucoseRecord).filter(
+            BloodGlucoseRecord.patient_login_code == current_user['login_code']
+        ).order_by(
+            BloodGlucoseRecord.recorded_at.desc()
+        ).limit(limit).offset(offset).all()
+        
+        total = db.query(BloodGlucoseRecord).filter(
+            BloodGlucoseRecord.patient_login_code == current_user['login_code']
+        ).count()
+        
+        return {
+            "success": True,
+            "data": {
+                "records": [
+                    {
+                        "id": record.id,
+                        "value": float(record.value),
+                        "period": record.period,
+                        "recorded_at": record.recorded_at.isoformat()
+                    }
+                    for record in records
+                ],
+                "total": total,
+                "limit": limit,
+                "offset": offset
+            }
+        }
+    except Exception as e:
+        logger.error(f"获取血糖记录失败: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取血糖记录失败"
+        )
+
+
+@router.get("/patients/me/blood-glucose/latest", response_model=dict)
+async def get_latest_blood_glucose(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_patient_info)
+):
+    """获取最新血糖记录"""
+    try:
+        record = db.query(BloodGlucoseRecord).filter(
+            BloodGlucoseRecord.patient_login_code == current_user['login_code']
+        ).order_by(
+            BloodGlucoseRecord.recorded_at.desc()
+        ).first()
+        
+        if record:
+            return {
+                "success": True,
+                "data": {
+                    "id": record.id,
+                    "value": float(record.value),
+                    "period": record.period,
+                    "recorded_at": record.recorded_at.isoformat()
+                }
+            }
+        else:
+            return {
+                "success": True,
+                "data": None
+            }
+    except Exception as e:
+        logger.error(f"获取最新血糖记录失败: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="获取最新血糖记录失败"
+        )
+
+
+@router.delete("/patients/me/blood-glucose/{record_id}", response_model=dict)
+async def delete_blood_glucose_record(
+    record_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_patient_info)
+):
+    """删除血糖记录"""
+    try:
+        record = db.query(BloodGlucoseRecord).filter(
+            BloodGlucoseRecord.id == record_id,
+            BloodGlucoseRecord.patient_login_code == current_user['login_code']
+        ).first()
+        
+        if not record:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="血糖记录不存在"
+            )
+        
+        db.delete(record)
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "血糖记录删除成功"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"删除血糖记录失败: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="删除血糖记录失败"
+        )
