@@ -6,7 +6,7 @@ from fastapi import Query
 from sql.start import get_db
 from sql.login_models import Nurse
 from sql.schemas import NurseCreate, NurseResponse
-from api.auth import get_password_hash, mark_login_code_as_used, get_login_code
+#from api.auth import get_password_hash, mark_login_code_as_used, get_login_code
 import sql.login_crud as login_curd
 import re  # 正则表达式模块
 
@@ -30,7 +30,8 @@ def get_all_nurses(db: Session, skip: int = 0, limit: int = 100):
 
 def create_nurse_record(db: Session, login_code: str, first_name: str, last_name: str, password: str):
     # 检查登录码是否可用
-    login_code_obj = get_login_code(db, login_code)
+    #login_code_obj = get_login_code(db, login_code)
+    login_code_obj = ""
     if not login_code_obj or login_code_obj.is_used:
         return None
 
@@ -48,7 +49,7 @@ def create_nurse_record(db: Session, login_code: str, first_name: str, last_name
     db.refresh(nurse)
 
     # 标记登录码为已使用
-    mark_login_code_as_used(db, login_code, "nurse")
+    #mark_login_code_as_used(db, login_code, "nurse")
 
     return nurse
 

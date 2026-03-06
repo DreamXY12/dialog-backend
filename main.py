@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
     init_models()
     yield
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 @app.get("/")
 async def root():
