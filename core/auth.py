@@ -14,7 +14,8 @@ from schema.token import Token, TokenData
 
 from sql.start import get_db
 from sql.models import User, Case, Query, Session
-from sql.login_models import Patient, Nurse
+# from sql.login_models import Patient, Nurse
+from sql.people_models import Patient, Nurse
 from sql.crud import get_user_by_username, get_session_by_key
 from config import get_parameter
 ##CONSTANT VARIABLE

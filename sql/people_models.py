@@ -10,7 +10,7 @@ import datetime
 from typing import List, Optional
 from sqlalchemy import (
     Integer, String, Date, DateTime, DECIMAL,
-    Index, ForeignKey, Enum, func
+    Index, ForeignKey, Enum, func,Float
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship
@@ -139,8 +139,8 @@ class Patient(TimeStampMixIn, Base):
         Index('uk_patient_phone', 'phone', unique=True),
         # 组合索引（匹配表中的idx_patient_name）
         Index('idx_patient_name', 'first_name', 'last_name'),
-        # 外键字段索引（匹配表中的idx_assigned_nurse_phone）
-        Index('idx_assigned_nurse_phone', 'assigned_nurse_phone'),
+        # 🔴 修改1：更新索引名，匹配新字段名
+        Index('idx_assigned_nurse_id', 'assigned_nurse_id'),
         # 表级参数
         {
             'comment': '患者表（全新）',
@@ -217,25 +217,25 @@ class Patient(TimeStampMixIn, Base):
         comment='体重（公斤）'
     )
 
-    # 外键字段（关联护士手机号）
-    assigned_nurse_phone: Mapped[Optional[str]] = mapped_column(
-        String(20),
+    # 🔴 修改2：替换外键字段（核心修改）
+    assigned_nurse_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
         ForeignKey(
-            'nurse.phone',
-            ondelete='SET NULL',  # 匹配表中的ON DELETE SET NULL
-            onupdate='CASCADE'   # 匹配表中的ON UPDATE CASCADE
+            'nurse.nurse_id',  # 关联nurse表的nurse_id
+            ondelete='SET NULL',
+            onupdate='CASCADE'
         ),
         nullable=True,
-        comment='负责护士手机号（关联nurse.phone）'
+        comment='负责护士ID（关联nurse.nurse_id）'  # 更新注释
     )
 
-    # 关系：一个患者对应一个护士（多对一）
+    # 🔴 修改3：保持关系映射不变（字段名变了但关系逻辑不变）
     nurse: Mapped[Optional[Nurse]] = relationship(
         back_populates="patients",
         lazy="selectin"
     )
 
-    # 计算属性
+    # 计算属性（无修改）
     @property
     def full_name(self):
         """获取患者完整姓名"""
@@ -359,3 +359,95 @@ class SmsVerificationCode(Base):
     def is_expired(self) -> bool:
         """判断验证码是否过期"""
         return datetime.datetime.now() > self.expire_at
+
+# class BloodGlucoseRecord(Base):
+#     """血糖记录模型"""
+#     __tablename__ = "blood_glucose_records"
+#
+#     id: Mapped[int] = mapped_column(
+#         Integer,
+#         primary_key=True,
+#         index=True,
+#         autoincrement=True,
+#         comment='记录ID'
+#     )
+#     patient_login_code: Mapped[str] = mapped_column(
+#         String(255),
+#         nullable=False,
+#         comment='患者登录码'
+#     )
+#     value: Mapped[float] = mapped_column(
+#         DECIMAL(5, 2),
+#         nullable=False,
+#         comment='血糖值 (mmol/L)'
+#     )
+#     period: Mapped[str] = mapped_column(
+#         String(50),
+#         nullable=False,
+#         comment='测量时段: 空腹、餐前、餐后、睡前'
+#     )
+#     recorded_at: Mapped[DateTime] = mapped_column(
+#         DateTime(timezone=True),
+#         server_default=func.now(),
+#         comment='记录时间'
+#     )
+#
+#     def __repr__(self):
+#         return f"<BloodGlucoseRecord(id={self.id}, patient_login_code={self.patient_login_code}, value={self.value})>"
+
+class BloodGlucoseRecord(Base):
+    """血糖记录模型"""
+    __tablename__ = "blood_glucose_records"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True,
+        autoincrement=True,
+        comment='记录ID'
+    )
+    # 核心修改：字段名改为patient_phone，长度调整为20（适配带区号的手机号）
+    patient_phone: Mapped[str] = mapped_column(
+        String(20),  # 原255过长，20足够容纳+8613800138000/+85298765432等格式
+        nullable=False,
+        comment='患者手机号（含区号，如+86/+/852）'
+    )
+    value: Mapped[float] = mapped_column(
+        DECIMAL(5, 2),
+        nullable=False,
+        comment='血糖值 (mmol/L)'
+    )
+    period: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        comment='测量时段: 空腹、餐前、餐后、睡前'
+    )
+    recorded_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        comment='记录时间'
+    )
+
+    def __repr__(self):
+        return f"<BloodGlucoseRecord(id={self.id}, patient_phone={self.patient_phone}, value={self.value})>"
+
+
+class Case(TimeStampMixIn, Base):
+    __tablename__ = 'patient_case'
+
+    user_id: Mapped[Optional[int]] = mapped_column()
+    case_id: Mapped[Optional[int]] = mapped_column(primary_key=True, autoincrement=True, index=True)
+
+    hba1c: Mapped[Optional[float]] = mapped_column()
+    fasting_glucose: Mapped[Optional[float]] = mapped_column()
+    hdl_cholesterol: Mapped[Optional[float]] = mapped_column()
+    total_cholesterol: Mapped[Optional[float]] = mapped_column()
+    ldl_cholesterol: Mapped[Optional[float]] = mapped_column()
+    creatinine: Mapped[Optional[float]] = mapped_column()
+    triglyceride: Mapped[Optional[float]] = mapped_column()
+    potassium: Mapped[Optional[float]] = mapped_column()
+
+    time_spec: Mapped[int] = mapped_column(Integer)
+    test_date: Mapped[Date] = mapped_column(Date)
+    analysis_result: Mapped[Optional[str]] = mapped_column(String(30))
+    score: Mapped[Optional[float]] = mapped_column(Float)

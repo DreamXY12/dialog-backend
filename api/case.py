@@ -7,7 +7,7 @@ from typing import List, Any
 from schema.case import UploadBody, DashboardItem, MarginResponse, MarginRequest, HistoryResponse, DenseResponse
 from core.risk_engine import RiskEngine
 from core.margin import Margin
-from sql.models import User, Case
+from sql.people_models import Case
 from sql.start import get_db
 from sql.crud import create_case, get_latest_case, get_cases_by_user, get_case_by_id
 

@@ -8,8 +8,8 @@ from typing import Union
 
 from sqlalchemy import select, update, desc, JSON, func, text
 from sql.start import engine, Base
-from sql.models import User, Case, Query, Session, Invitation
-from sql.login_models import Patient, Nurse, LoginCode, PatientAIDialogHistory, BloodGlucoseRecord
+from sql.models import User, Query, Session, Invitation
+from sql.people_models import Case
 from sqlalchemy.orm import Session as Connection
 from datetime import datetime
 
@@ -104,7 +104,7 @@ def get_cases_by_user(db: Connection, user):
         raise ValueError("Invalid user type")
     
     stmt = (
-        select(Case.case_id, Case.test_date, Case.create_time, Case.time_spec, Case.analysis_result, Case.score, 
+        select(Case.case_id, Case.test_date, Case.create_time, Case.time_spec, Case.analysis_result, Case.score,
                Case.hba1c, Case.fasting_glucose, Case.hdl_cholesterol, 
                Case.total_cholesterol, Case.ldl_cholesterol, Case.creatinine, 
                Case.triglyceride, Case.potassium)\

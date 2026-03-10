@@ -167,11 +167,14 @@ class PatientAIDialogHistory(TimeStampMixIn, Base):
         autoincrement=True,
         comment='历史记录ID'
     )
-    patient_login_code: Mapped[str] = mapped_column(
-        String(4),
-        ForeignKey("patient.login_code", ondelete="CASCADE", onupdate="CASCADE"),
+    # 核心修改1：字段名改为patient_phone
+    # 核心修改2：长度从4改为20（适配带区号的手机号：+86/852+手机号）
+    # 核心修改3：外键关联patient.phone字段，保留原有ON DELETE/UPDATE规则
+    patient_phone: Mapped[str] = mapped_column(
+        String(20),  # 原String(4)太短，20足够容纳+8613800138000/+85298765432
+        ForeignKey("patient.phone", ondelete="CASCADE", onupdate="CASCADE"),
         nullable=False,
-        comment='患者登录码'
+        comment='患者手机号（含区号，关联patient.phone）'
     )
     session_key: Mapped[str] = mapped_column(
         String(100),
@@ -191,7 +194,7 @@ class PatientAIDialogHistory(TimeStampMixIn, Base):
         comment='会话标题'
     )
     prompts: Mapped[Optional[dict]] = mapped_column(
-        JSON,  # 需要确保从sqlalchemy导入了JSON
+        JSON,
         nullable=True,
         comment='完整的对话内容/历史'
     )
@@ -207,8 +210,8 @@ class PatientAIDialogHistory(TimeStampMixIn, Base):
     )
 
     def __repr__(self):
-        return f"<PatientAIDialogHistory(history_id={self.history_id}, patient_login_code={self.patient_login_code})>"
-
+        # 核心修改4：repr方法中字段名同步修改
+        return f"<PatientAIDialogHistory(history_id={self.history_id}, patient_phone={self.patient_phone})>"
 
 class BloodGlucoseRecord(Base):
     """血糖记录模型"""

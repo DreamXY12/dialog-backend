@@ -18,12 +18,14 @@ AWS_REGION = "ap-southeast-1"  # 你配置的区域
 SNS_SANDBOX_MODE = True  # 开启沙盒模式
 # 沙盒模式下必须配置已验证的测试手机号（在AWS控制台验证后填入）
 SANDBOX_TEST_PHONES = [
-    "+85269714291"  # 替换为你在AWS验证的香港测试手机号
+    "+85269714291",  # 替换为你在AWS验证的香港测试手机号
+    "+85294839076"
 ]
 
 # 验证码规则
 VERIFY_CODE_LENGTH = 6  # 6位数字验证码
 VERIFY_CODE_EXPIRE_HOURS = 1  # 有效期1小时
+VERIFY_CODE_EXPIRE_MINUTES = 5 # 有效期5分鐘
 VERIFY_CODE_SEND_INTERVAL = 60  # 防刷间隔：60秒
 SNS_SENDER_ID = "12Test12"  # 沙盒模式下可随意填（无需审核）
 
@@ -75,7 +77,7 @@ def send_sms_via_sns_sandbox(phone: str, code: str) -> dict:
         )
 
     # 沙盒模式短信内容（需包含【TEST】标识，AWS要求）
-    sms_message = f"【TEST】Your verification code: {code} (Valid for {VERIFY_CODE_EXPIRE_HOURS} hour). 您的验证码：{code}（有效期{VERIFY_CODE_EXPIRE_HOURS}小时）。"
+    sms_message = f"【TEST】Your verification code: {code} (Valid for {VERIFY_CODE_EXPIRE_MINUTES} minutes). 您的验证码：{code}（有效期{VERIFY_CODE_EXPIRE_MINUTES}分鐘）。"
 
     try:
         # 沙盒模式发送短信（自动使用本地AWS凭证）
@@ -188,11 +190,11 @@ def send_verification_code(
         }
     else:
         # 沙盒模式真实发送
-        sns_response = send_sms_via_sns_sandbox(phone, code)
+        #sns_response = send_sms_via_sns_sandbox(phone, code)
         return {
             "success": True,
             "message": f"验证码{code}已发送至{phone}（沙盒模式），有效期{VERIFY_CODE_EXPIRE_HOURS}小时",
             "phone": phone,
-            "message_id": sns_response["message_id"],
+            #"message_id": sns_response["message_id"],
             "sandbox_mode": True
         }

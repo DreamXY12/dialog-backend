@@ -7,6 +7,7 @@ try:
 except ImportError:
     has_tensorflow = False
     print("Warning: TensorFlow not available, using mock implementation")
+has_tensorflow = False
 
 from sql.models import Case
 import os

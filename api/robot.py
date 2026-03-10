@@ -1,13 +1,11 @@
 import logging
 from twilio.rest import Client
 from fastapi import Request, APIRouter, HTTPException
-from core.translate import to_other_language, user_input_to_internal_language, get_fixed_field_translation
-from core.translate import get_fixed_response_translation
-from core.translate import normalize_alcohol, normalize_yes_no, extract_local_context
 from sql.cache_database import r, store_message, get_chat_history
 from sql.start import get_db
 import sql.crud as crud
 from api.user import sign_up, CreateUser
+from core.translate import to_other_language
 from api.session import response_from_llm
 from sql.models import Session, Query
 from sql import models
@@ -25,10 +23,10 @@ from sql.login_crud import get_filtered_messages_from_dialogs,get_message_timeli
 from config import get_parameter
 from enum import Enum
 from datetime import date
+from sql.patient_curd import get_patient_by_phone
 
 from sql.login_crud import get_patient_by_login_code
 
-"""現在是把用戶登錄的login_code當作原來的phone_number，時間緊急，就先這樣"""
 
 router = APIRouter(prefix='/robot', tags=["robot"])
 
@@ -45,7 +43,7 @@ async def extract(request: Request):
     json_data = await request.json()
     return {
         "prompt": json_data.get("prompt"),
-        "login_code": json_data.get("login_code"),
+        "phone": json_data.get("phone"),
         "user_info": json_data.get("user_info"),
     }
 
@@ -73,15 +71,15 @@ async def reply(request: Request, db: Annotated[Connection, Depends(get_db)]):
     try:
         data = await extract(request)
         question = data["prompt"]
-        phone_number = data["login_code"]
+        phone_number = data["phone"]
         user_info=data["user_info"]
         if user_info is not None:
             set_user_profile(phone_number, user_info)
 
         logger.info(f"Received message from {phone_number}: {question}")
 
-        # 检查用户是否已注册
-        user = get_patient_by_login_code(db,phone_number)
+        # 检查用户是否已注册，能使用这个功能说明用户已经被注册了。
+        user = get_patient_by_phone(db,phone_number)
         if user is not None:
             # 已注册用户，处理正常对话
             logger.info(f"User {phone_number} is already registered")

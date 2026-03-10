@@ -173,11 +173,15 @@ async def batch_assign_patients_to_nurse(
         failed_count = 0
 
         for patient_phone in request.patient_phones:  # 替换 patient_login_codes
-            # 验证手机号格式
-            if not re.match(r'^1[3-9]\d{9}$', patient_phone):
+            # 验证手机号格式（适配中国大陆 +86 / 中国香港 +852）
+            # 匹配规则：
+            # 1. 中国大陆：+861[3-9]\d{9} 或 1[3-9]\d{9}
+            # 2. 中国香港：+852\d{8} （香港手机号8位数字）
+            phone_pattern = r'^(?:\+86)?1[3-9]\d{9}$|^\+852\d{8}$'
+            if not re.match(phone_pattern, patient_phone):
                 results["failed"].append({
                     "patient_phone": patient_phone,  # 替换 patient_login_code
-                    "reason": "手机号格式错误"
+                    "reason": f"手机号格式错误（支持：中国大陆+86/11位、香港+852/8位）"
                 })
                 failed_count += 1
                 continue
