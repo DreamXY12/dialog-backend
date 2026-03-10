@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sql.people_models import Gender, FamilyHistory, SmokingStatus, DrinkingFrequency
 from sql.patient_curd import get_patient_by_id,update_patient_record
 from datetime import date, datetime
-from sql.nurse_curd import get_nurse_by_phone
+from sql.nurse_curd import get_nurse_by_id
 from sql.patient_curd import get_patient_by_phone
 from sql.people_models import Patient,BloodGlucoseRecord
 
@@ -229,8 +229,8 @@ async def get_patient_profile(
 
     # 5. 获取护士信息（适配新模型：按手机号查询）
     nurse_info = None
-    if patient.assigned_nurse_phone:
-        nurse = get_nurse_by_phone(db, patient.assigned_nurse_phone)
+    if patient.assigned_nurse_id:
+        nurse = get_nurse_by_id(db, patient.assigned_nurse_id)
         if nurse:
             nurse_info = {
                 "nurse_id": nurse.nurse_id,
@@ -245,6 +245,7 @@ async def get_patient_profile(
         "patient": {
             "patient_id": patient.patient_id,
             "phone": patient.phone,  # 返回患者手机号（替代原login_code）
+            "phone_area_code":patient.phone_area_code,
             "first_name": patient.first_name,
             "last_name": patient.last_name,
             "full_name": f"{patient.first_name}{patient.last_name}",
@@ -258,7 +259,7 @@ async def get_patient_profile(
             "height": float(patient.height) if patient.height else None,
             "weight": float(patient.weight) if patient.weight else None,
             "bmi": bmi,
-            "assigned_nurse_phone": patient.assigned_nurse_phone  # 补充护士手机号
+            "assigned_nurse_id": patient.assigned_nurse_id  # 补充护士ID
         },
         "nurse": nurse_info
     }

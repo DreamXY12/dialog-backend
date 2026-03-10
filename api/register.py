@@ -33,7 +33,7 @@ class BaseRegisterRequest(BaseModel):
 
 class PatientRegisterRequest(BaseRegisterRequest):
     """患者注册请求体（扩展专属字段）"""
-    assigned_nurse_phone: Optional[str] = Field(None, description="负责护士手机号，默认空")
+    assigned_nurse_id: Optional[int] = Field(None, description="负责护士ID，默认空")
 
 class NurseRegisterRequest(BaseRegisterRequest):
     """护士注册请求体（无扩展字段，直接继承通用体）"""
@@ -48,6 +48,7 @@ class CommonTokenResponse(BaseModel):
     first_name: str
     last_name: str
     phone: str
+    phone_area_code: Optional[str] = Field(None, description="手机号区号，如+852/+86")
     is_first_login: bool = True
     # 可选：扩展字段（按需添加）
     full_name: str = Field(None, description="完整姓名（姓+名）")
@@ -70,7 +71,7 @@ def create_patient_record(
     first_name: str,
     last_name: str,
     phone_area_code: Optional[str] = None,
-    assigned_nurse_phone: Optional[str] = None
+    assigned_nurse_id: Optional[int] = None
 ):
     """创建患者记录"""
     # 检查手机号是否已注册
@@ -83,7 +84,7 @@ def create_patient_record(
         phone_area_code=phone_area_code,
         first_name=first_name,
         last_name=last_name,
-        assigned_nurse_phone=assigned_nurse_phone,
+        assigned_nurse_id=assigned_nurse_id,
         create_time=datetime.now(),
         update_time=datetime.now()
     )
@@ -158,7 +159,7 @@ async def register_patient(
             first_name=request.first_name,
             last_name=request.last_name,
             phone_area_code=request.phone_area_code,
-            assigned_nurse_phone=request.assigned_nurse_phone
+            assigned_nurse_id=request.assigned_nurse_id
         )
         if not patient:
             raise HTTPException(
@@ -185,6 +186,7 @@ async def register_patient(
             first_name=patient.first_name,
             last_name=patient.last_name,
             phone=patient.phone,
+            phone_area_code=patient.phone_area_code,
             full_name=f"{patient.first_name}{patient.last_name}"  # 可选：拼接完整姓名
         )
 
@@ -251,6 +253,7 @@ async def register_nurse(
             first_name=nurse.first_name,
             last_name=nurse.last_name,
             phone=nurse.phone,
+            phone_area_code=nurse.phone_area_code,
             full_name=f"{nurse.first_name}{nurse.last_name}"  # 可选：拼接完整姓名
         )
 

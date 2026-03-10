@@ -9,6 +9,30 @@ def get_nurse_by_phone(db: Session, phone: str) -> Nurse | None:
     return db.query(Nurse).filter(Nurse.phone == phone).first()
 
 
+def get_nurse_by_id(db: Session, nurse_id: int) -> Optional[Nurse]:
+    """
+    按照护士ID获取护士的基本信息
+
+    Args:
+        db: 数据库会话对象
+        nurse_id: 护士ID（主键）
+
+    Returns:
+        Optional[Nurse]: 找到返回Nurse对象，未找到/参数非法返回None
+    """
+    # 1. 参数校验：确保nurse_id是合法整数（防御性编程）
+    if not isinstance(nurse_id, int) or nurse_id <= 0:
+        return None
+
+    try:
+        # 2. 显式通过主键字段查询（比get()更通用、可读性更高）
+        return db.query(Nurse).filter(Nurse.nurse_id == nurse_id).first()
+    except Exception as e:
+        # 3. 异常捕获：避免数据库层面的意外报错导致程序崩溃
+        print(f"查询护士信息失败（ID: {nurse_id}）：{str(e)}")  # 建议替换为日志库（如logging）
+        return None
+
+
 def get_nurse_id_by_phone(db: Session, phone: str) -> Optional[int]:
     """
     按手机号查询护士ID（适配新模型）

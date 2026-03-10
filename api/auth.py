@@ -11,6 +11,7 @@ from api.register import CommonTokenResponse  # 复用通用Token响应模型
 from sql.verify_code_curd import verify_verification_code  # 验证码验证函数
 from pydantic import BaseModel,Field
 from utility.fun_tool import create_access_token,decode_token,ACCESS_TOKEN_EXPIRE_MINUTES
+from typing import Optional
 
 # ---------------------------
 # 1. 配置（移除配置文件依赖，直接定义3天有效期）
@@ -27,6 +28,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 class LoginRequest(BaseModel):
     """登录请求体（替换原登录码+密码）"""
     phone: str = Field(..., description="带区号的手机号，如+85212345678")
+    phone_area_code: Optional[str] = Field(None, description="手机号区号，如+852/+86")
     verify_code: str = Field(..., min_length=6, max_length=6, description="6位短信验证码")
     user_type: str = Field(..., pattern="^(patient|nurse)$", description="用户类型：patient/nurse")
 
@@ -90,6 +92,7 @@ async def login(
             first_name=str(user.first_name),
             last_name=str(user.last_name),
             phone=request.phone,  # 替换原login_code字段
+            phone_area_code=request.phone_area_code,
             is_first_login=False,  # 登录时标记为非首次
             full_name=f"{user.first_name}{user.last_name}"
         )
