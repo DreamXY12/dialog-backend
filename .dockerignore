@@ -1,2 +1,16 @@
 *.ipynb
 test.json
+test_password_hash.py
+test_blood_glucose_api.py
+test_blood_glucose_debug.py
+test_blood_glucose_with_token.py
+test_login.py
+test_risk_engine.py
+register_and_test.py
+test/
+check_case_table.py
+check_patient.py
+check_tables.py
+create_tables.sql
+debug_token.py
+.vscode/

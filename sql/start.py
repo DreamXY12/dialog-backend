@@ -11,11 +11,11 @@ HOST = get_parameter("rdb", "host") or "localhost"
 DATABASE = get_parameter("rdb", "database") or "dialog"
 DEBUG = get_parameter("dev", "debug") == "1"
 
-if DEBUG:# 第68行的注释说明了问
-    USERNAME="root"
-    HOST="localhost"
-    DATABASE = "dialog"
-    PASSWORD="MariaDB2026!"
+# if DEBUG:# 第68行的注释说明了问
+#     USERNAME="root"
+#     HOST="localhost"
+#     DATABASE = "dialog"
+#     PASSWORD="MariaDB2026!"
     
     
 # 使用直接的连接字符串格式，确保认证插件被正确指定
