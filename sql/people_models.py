@@ -16,6 +16,8 @@ from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship
 )
 
+from sqlalchemy.dialects.mysql import JSON
+
 # ---------------------------
 # 基础类定义
 # ---------------------------
@@ -451,3 +453,59 @@ class Case(TimeStampMixIn, Base):
     test_date: Mapped[Date] = mapped_column(Date)
     analysis_result: Mapped[Optional[str]] = mapped_column(String(30))
     score: Mapped[Optional[float]] = mapped_column(Float)
+
+class PatientAIDialogHistory(TimeStampMixIn, Base):
+    """患者-AI对话历史记录表"""
+    __tablename__ = 'ai_dialog_history'
+
+    history_id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+        comment='历史记录ID'
+    )
+    # 核心修改1：字段名改为patient_phone
+    # 核心修改2：长度从4改为20（适配带区号的手机号：+86/852+手机号）
+    # 核心修改3：外键关联patient.phone字段，保留原有ON DELETE/UPDATE规则
+    patient_phone: Mapped[str] = mapped_column(
+        String(20),  # 原String(4)太短，20足够容纳+8613800138000/+85298765432
+        ForeignKey("patient.phone", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False,
+        comment='患者手机号（含区号，关联patient.phone）'
+    )
+    session_key: Mapped[str] = mapped_column(
+        String(100),
+        unique=True,
+        index=True,
+        nullable=False,
+        comment='会话唯一标识'
+    )
+    ai_model: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment='使用的AI模型'
+    )
+    title: Mapped[Optional[str]] = mapped_column(
+        String(200),
+        nullable=True,
+        comment='会话标题'
+    )
+    prompts: Mapped[Optional[dict]] = mapped_column(
+        JSON,
+        nullable=True,
+        comment='完整的对话内容/历史'
+    )
+    message_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        comment='消息总数量'
+    )
+    last_message_time: Mapped[Optional[DateTime]] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment='最后消息时间'
+    )
+
+    def __repr__(self):
+        # 核心修改4：repr方法中字段名同步修改
+        return f"<PatientAIDialogHistory(history_id={self.history_id}, patient_phone={self.patient_phone})>"

@@ -1,10 +1,8 @@
 import logging
-from twilio.rest import Client
 from fastapi import Request, APIRouter, HTTPException
-from sql.cache_database import r, store_message, get_chat_history
+from sql.cache_database import r, store_message
 from sql.start import get_db
 import sql.crud as crud
-from api.user import sign_up, CreateUser
 from core.translate import to_other_language
 from api.session import response_from_llm
 from sql.models import Session, Query
@@ -12,20 +10,14 @@ from sql import models
 from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.orm import Session as Connection
-import re
-from datetime import datetime, timedelta
 import uuid
-from sql.login_crud import get_or_create_ai_dialog
-from sql.login_crud import get_ai_dialogs_by_patient_and_date_range,get_ai_dialogs_by_patient_login_code
-from sql.login_crud import update_ai_dialog_with_message,update_ai_dialog_with_message_simple,get_conversation_statistics_enhanced
+from sql.patient_curd import get_or_create_ai_dialog
+from sql.patient_curd import get_ai_dialogs_by_patient_and_date_range,get_ai_dialogs_by_patient_login_code
+from sql.patient_curd import update_ai_dialog_with_message,update_ai_dialog_with_message_simple,get_conversation_statistics_enhanced
 from sql.models import Session as OldSession
-from sql.login_crud import get_filtered_messages_from_dialogs,get_message_timeline,search_messages_by_keyword,get_ai_dialogs_by_patient_and_day
-from config import get_parameter
-from enum import Enum
+from sql.patient_curd import get_filtered_messages_from_dialogs,get_message_timeline,search_messages_by_keyword,get_ai_dialogs_by_patient_and_day
 from datetime import date
-from sql.patient_curd import get_patient_by_phone
-
-from sql.login_crud import get_patient_by_login_code
+from sql.patient_curd import get_patient_by_phone,get_patient_by_id
 
 
 router = APIRouter(prefix='/robot', tags=["robot"])
@@ -128,7 +120,7 @@ async def handle_registered_user(user, login_code, question, db):
 
         ai_dialog = get_or_create_ai_dialog(
             db=db,
-            patient_login_code=login_code,
+            patient_phone=login_code,
             session_key=ai_session_key,
             ai_model="gpt-4"
         )
@@ -143,6 +135,7 @@ async def handle_registered_user(user, login_code, question, db):
         # 获取LLM响应
         chat_response = response_from_llm(q, session, db, login_code)
         ai_response_text = chat_response["response"]
+        ai_response_tchinese=to_other_language(ai_response_text, "yue")
 
         # 2. 更新AI对话记录
         if ai_dialog:
@@ -150,7 +143,7 @@ async def handle_registered_user(user, login_code, question, db):
                 db=db,
                 session_key=ai_session_key,
                 user_message=question,
-                ai_response=ai_response_text,
+                ai_response=ai_response_tchinese,
                 ai_model="gpt-4"
             )
 
@@ -160,7 +153,7 @@ async def handle_registered_user(user, login_code, question, db):
                 print(f"Failed to update dialog {ai_session_key}")
 
         # 发送响应
-        return send_message(login_code, ai_response_text, "ai", 1)
+        return send_message(login_code, ai_response_tchinese, "ai", 0)
 
     except Exception as e:
         print(f"Error in handle_registered_user for {login_code}: {e}")
@@ -175,9 +168,9 @@ import json
 
 
 # 添加新的API端点来查询AI对话历史
-@router.get("/ai-dialogs/{patient_login_code}")
+@router.get("/ai-dialogs/{patient_phone}")
 def get_patient_ai_dialogs_endpoint(
-        patient_login_code: str,
+        patient_phone: str,
         db: Annotated[Connection, Depends(get_db)],
         include_messages: bool = Query(False, description="是否包含完整的消息内容"),
         skip: int = Query(0, ge=0, description="跳过记录数"),
@@ -187,7 +180,7 @@ def get_patient_ai_dialogs_endpoint(
     """获取患者的AI对话历史记录"""
     try:
         # 获取所有对话
-        dialogs = get_ai_dialogs_by_patient_login_code(db, patient_login_code)
+        dialogs = get_ai_dialogs_by_patient_login_code(db, patient_phone)
 
         # 计算总数
         total = len(dialogs)
@@ -204,7 +197,7 @@ def get_patient_ai_dialogs_endpoint(
         for dialog in paginated_dialogs:
             dialog_info = {
                 "history_id": dialog.history_id,
-                "patient_login_code": dialog.patient_login_code,
+                "patient_phone": dialog.patient_phone,
                 "session_key": dialog.session_key,
                 "title": dialog.title,
                 "ai_model": dialog.ai_model,
@@ -256,7 +249,7 @@ def get_patient_ai_dialogs_endpoint(
                 "has_more": (skip + limit) < total
             },
             "summary": {
-                "patient_login_code": patient_login_code,
+                "patient_phone": patient_phone,
                 "total_dialogs": total,
                 "total_messages": sum(d.message_count for d in dialogs),
                 "earliest_conversation": dialogs[-1].create_time.isoformat() if dialogs else None,
@@ -265,13 +258,13 @@ def get_patient_ai_dialogs_endpoint(
         }
 
     except Exception as e:
-        logger.error(f"Error getting AI dialogs for {patient_login_code}: {e}")
+        logger.error(f"Error getting AI dialogs for {patient_phone}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/ai-dialogs/{patient_login_code}/date-range")
+@router.get("/ai-dialogs/{patient_phone}/date-range")
 def get_patient_ai_dialogs_by_date_range_endpoint(
-        patient_login_code: str,
+        patient_phone: str,
         db: Annotated[Connection, Depends(get_db)],
         start_date: datetime = Query(..., description="开始时间，格式: 2024-01-01T00:00:00"),
         end_date: datetime = Query(..., description="结束时间，格式: 2024-01-31T23:59:59"),
@@ -290,7 +283,7 @@ def get_patient_ai_dialogs_by_date_range_endpoint(
         if filter_type == "dialog_time":
             # 基于对话创建时间过滤
             dialogs = get_ai_dialogs_by_patient_and_date_range(
-                db, patient_login_code, start_date, end_date
+                db, patient_phone, start_date, end_date
             )
 
             response_data = []
@@ -331,7 +324,7 @@ def get_patient_ai_dialogs_by_date_range_endpoint(
 
             # 获取统计信息
             stats = get_conversation_statistics_enhanced(
-                db, patient_login_code, start_date, end_date
+                db, patient_phone, start_date, end_date
             )
 
             return {
@@ -349,12 +342,12 @@ def get_patient_ai_dialogs_by_date_range_endpoint(
         else:  # 默认使用 message_time
             # 基于消息时间过滤
             filtered_data = get_filtered_messages_from_dialogs(
-                db, patient_login_code, start_date, end_date, include_context
+                db, patient_phone, start_date, end_date, include_context
             )
 
             # 获取统计信息
             stats = get_conversation_statistics_enhanced(
-                db, patient_login_code, start_date, end_date
+                db, patient_phone, start_date, end_date
             )
 
             return {
@@ -374,14 +367,14 @@ def get_patient_ai_dialogs_by_date_range_endpoint(
             }
 
     except Exception as e:
-        logger.error(f"Error getting AI dialogs for {patient_login_code} in date range: {e}")
+        logger.error(f"Error getting AI dialogs for {patient_phone} in date range: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/ai-dialogs/{patient_login_code}/statistics")
+@router.get("/ai-dialogs/{patient_phone}/statistics")
 def get_patient_ai_dialogs_statistics(
         db: Annotated[Connection, Depends(get_db)],
-        patient_login_code: str,
+        patient_phone: str,
         start_date: Optional[datetime] = Query(None, description="开始时间"),
         end_date: Optional[datetime] = Query(None, description="结束时间"),
 
@@ -395,23 +388,23 @@ def get_patient_ai_dialogs_statistics(
             start_date = end_date - timedelta(days=30)
 
         # 获取基础统计
-        all_dialogs = get_ai_dialogs_by_patient_login_code(db, patient_login_code)
+        all_dialogs = get_ai_dialogs_by_patient_login_code(db, patient_phone)
         total_dialogs = len(all_dialogs)
         total_messages = sum(d.message_count for d in all_dialogs)
 
         # 获取时间范围内的增强统计
         range_stats = get_conversation_statistics_enhanced(
-            db, patient_login_code, start_date, end_date
+            db, patient_phone, start_date, end_date
         )
 
         # 获取时间线数据
         timeline = get_message_timeline(
-            db, patient_login_code, start_date, end_date, group_by='day'
+            db, patient_phone, start_date, end_date, group_by='day'
         )
 
         return {
             "code": 200,
-            "patient_login_code": patient_login_code,
+            "patient_phone": patient_phone,
             "date_range": {
                 "start": start_date.isoformat(),
                 "end": end_date.isoformat()
@@ -428,13 +421,13 @@ def get_patient_ai_dialogs_statistics(
         }
 
     except Exception as e:
-        logger.error(f"Error getting statistics for {patient_login_code}: {e}")
+        logger.error(f"Error getting statistics for {patient_phone}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/ai-dialogs/{patient_login_code}/search")
+@router.get("/ai-dialogs/{patient_phone}/search")
 def search_patient_ai_dialogs(
-        patient_login_code: str,
+        patient_phone: str,
         db: Annotated[Connection, Depends(get_db)],
         start_date: Optional[datetime] = Query(None, description="开始时间"),
         end_date: Optional[datetime] = Query(None, description="结束时间"),
@@ -444,7 +437,7 @@ def search_patient_ai_dialogs(
         # 调用修改后的函数（已移除keyword参数）
         messages = search_messages_by_keyword(
             db=db,
-            patient_login_code=patient_login_code,
+            patient_phone=patient_phone,
             start_date=start_date,
             end_date=end_date,
         )
@@ -484,7 +477,7 @@ def search_patient_ai_dialogs(
             "code": 200,
             "message": "查询成功",
             "data": {
-                "patient_login_code": patient_login_code,
+                "patient_phone": patient_phone,
                 "search_criteria": {
                     "date_range": {
                         "start": start_date.isoformat() if start_date else None,
@@ -506,7 +499,7 @@ def search_patient_ai_dialogs(
         }
 
     except Exception as e:
-        logger.error(f"Error searching dialogs for {patient_login_code}: {e}")
+        logger.error(f"Error searching dialogs for {patient_phone}: {e}")
         return {
             "code": 500,
             "message": f"查询失败: {str(e)}",
@@ -523,10 +516,10 @@ def get_validated_date(date_str: str) -> date:
             detail="日期格式无效，应为 YYYY-MM-DD"
         )
 
-@router.get("/ai-dialogs/{patient_login_code}/date/{date_str}")
+@router.get("/ai-dialogs/{patient_phone}/date/{date_str}")
 def get_patient_ai_dialogs_by_date(
         db: Annotated[Connection, Depends(get_db)],
-        patient_login_code: str,
+        patient_phone: str,
         date_str: str ,
         detailed: bool = Query(False, description="是否返回详细消息"),
 
@@ -537,14 +530,14 @@ def get_patient_ai_dialogs_by_date(
         query_date = datetime.strptime(date_str, "%Y-%m-%d")
 
         # 获取当天的对话
-        dialogs = get_ai_dialogs_by_patient_and_day(db, patient_login_code, query_date)
+        dialogs = get_ai_dialogs_by_patient_and_day(db, patient_phone, query_date)
 
         # 获取统计信息
         start_of_day = query_date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_day = start_of_day + timedelta(days=1) - timedelta(seconds=1)
 
         stats = get_conversation_statistics_enhanced(
-            db, patient_login_code, start_of_day, end_of_day
+            db, patient_phone, start_of_day, end_of_day
         )
 
         response_data = []
@@ -593,7 +586,7 @@ def get_patient_ai_dialogs_by_date(
     except ValueError:
         raise HTTPException(status_code=400, detail="日期格式错误，请使用YYYY-MM-DD格式")
     except Exception as e:
-        logger.error(f"Error getting dialogs for {patient_login_code} on {date_str}: {e}")
+        logger.error(f"Error getting dialogs for {patient_phone} on {date_str}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -672,7 +665,7 @@ def migrate_existing_dialogs_to_ai_history(db: Connection):
                 continue
 
             # 获取用户信息
-            user = get_patient_by_login_code(db, str(old_session.user_id))
+            user = get_patient_by_id(db, str(old_session.user_id))
             if not user:
                 continue
 
@@ -685,7 +678,7 @@ def migrate_existing_dialogs_to_ai_history(db: Connection):
                     # 获取或创建AI对话
                     ai_dialog = get_or_create_ai_dialog(
                         db=db,
-                        patient_login_code=user.login_code,
+                        patient_phone=user.phone,
                         session_key=ai_session_key,
                         ai_model="gpt-3.5",  # 假设是旧模型
                         initial_message=query.enquiry

@@ -8,7 +8,8 @@ from requests.auth import HTTPBasicAuth
 
 
 #修改后的代码
-BASE_URL = get_parameter("ollama", "base_url") or "http://localhost:11434"
+# BASE_URL = get_parameter("ollama", "base_url") or "http://localhost:11434" 远程的已经下线了
+BASE_URL = "http://localhost:11434"
 MODEL_ID = get_parameter("ollama", "model_id") or "llama3"
 #测试输出
 print("测试是否取到模型名称和ID")
