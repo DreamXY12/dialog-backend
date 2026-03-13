@@ -24,3 +24,4 @@ uvicorn==0.34.2
 python-multipart==0.0.6
 google-cloud-core==2.4.1
 google-cloud-translate==3.13.0
+deep-translator==1.9.1
