@@ -9,13 +9,12 @@ USERNAME = get_parameter("rdb", "username") or "root"
 PASSWORD = get_parameter("rdb", "password") or "MariaDB2026!"
 HOST = get_parameter("rdb", "host") or "localhost"
 DATABASE = get_parameter("rdb", "database") or "dialog"
-DEBUG = get_parameter("dev", "debug") == "1"
 
-# if DEBUG:# 第68行的注释说明了问
-#     USERNAME="root"
-#     HOST="localhost"
-#     DATABASE = "dialog"
-#     PASSWORD="MariaDB2026!"
+# 新增：isLocalDev 如果值为1则是本地测试，为0则到了服务器端
+ISLOCALDEV = get_parameter("dev", "isLocalDev")
+if ISLOCALDEV=="0":
+    #这里只用修改HOST就行了，其余都不变
+    HOST="diabetes-rds.cteaa20ag0h1.ap-southeast-1.rds.amazonaws.com"
     
     
 # 使用直接的连接字符串格式，确保认证插件被正确指定
