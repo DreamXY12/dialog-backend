@@ -191,6 +191,7 @@ def send_verification_code(
     else:
         # 沙盒模式真实发送
         sns_response = send_sms_via_sns_sandbox(phone, code)
+        print("沙盒模式发送验证码!");
         return {
             "success": True,
             "message": f"验证码{code}已发送至{phone}（沙盒模式），有效期{VERIFY_CODE_EXPIRE_HOURS}小时",
