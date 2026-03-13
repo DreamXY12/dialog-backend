@@ -26,25 +26,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI()
 
-@app.get("/")
-async def root():
-    #测试后端申请微信端口
-    wx_item_data={
-        "grant_type": "client_credential",
-        "appid": "wx6a354e75f350785c",
-        "secret": "2fbf6080ac841f40efb718e49454c626"
-    }
-    response = requests.post("https://api.weixin.qq.com/cgi-bin/stable_token",json=wx_item_data)
-    print(f"Status Code: {response.status_code}")
-    print(f"Response: {response.json()}")
-
-    access_token=response.json().get("access_token")
-    url=f"https://api.weixin.qq.com/cgi-bin/user/get?access_token={access_token}"
-    response=requests.get(url)
-    print("返回的关注列表",response.json())
-
-    return {"message": "hello dialog !"}
-
 origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
