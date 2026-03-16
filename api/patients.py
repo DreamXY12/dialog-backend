@@ -19,6 +19,18 @@ router = APIRouter(prefix="/patients", tags=["patient"])
 
 logger = logging.getLogger(__name__)
 
+# 更新患者体重
+class PatientWeightUpdate(BaseModel):
+    """更新体重的请求体模型（匹配你的代码风格）"""
+    weight: float = Field(..., gt=0, le=500, description="体重（公斤），范围0-500")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "weight": 65.5
+            }
+        }
+
 # 严格匹配前端传参的请求体模型（移除所有护士相关字段）
 class FirstLoginUpdate(BaseModel):
     height: float = Field(..., gt=0, le=250, description="身高（厘米），范围0-250")
@@ -265,6 +277,97 @@ async def get_patient_profile(
     }
 
     return response
+
+@router.put("/me/weight")
+async def update_patient_weight(
+        weight_data: PatientWeightUpdate,
+        token: str = Depends(oauth2_scheme),
+        db: Session = Depends(get_db)
+):
+    """
+    当前患者更新体重信息
+    通过token验证身份，仅更新体重字段
+    """
+    logger.info(f"接收体重更新请求: {weight_data.dict()}")
+
+    # 1. 验证令牌（复用你现有逻辑）
+    payload = decode_token(token)
+    if not payload or payload.get("user_type") != "patient":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的令牌或权限不足"
+        )
+
+    patient_id = int(payload.get("sub"))
+    logger.info(f"患者ID {patient_id} 请求更新体重")
+
+    # 2. 查询患者是否存在
+    patient = get_patient_by_id(db, patient_id)
+    if not patient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="患者不存在"
+        )
+
+    # 3. 构建更新字典（仅体重字段）
+    update_dict = {
+        "weight": float(weight_data.weight)
+    }
+
+    # 4. 调用现有更新函数（复用你已有的update_patient_record）
+    updated_patient = update_patient_record(db, patient_id, update_dict)
+    if not updated_patient:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="体重更新失败"
+        )
+
+    logger.info(f"患者ID {patient_id} 体重更新成功: {weight_data.weight}kg")
+
+    # 5. 返回更新结果（保持和你现有接口一致的响应格式）
+    return {
+        "patient_id": updated_patient.patient_id,
+        "phone": updated_patient.phone,
+        "full_name": updated_patient.full_name,
+        "weight": float(updated_patient.weight) if updated_patient.weight else None,
+        "bmi": updated_patient.bmi,  # 自动返回更新后的BMI
+        "message": "体重更新成功"
+    }
+
+# ========== 单独获取体重接口（方便前端查询） ==========
+@router.get("/me/weight")
+async def get_patient_weight(
+        phone: str = Query(..., description="患者登录手机号（带区号，如+85212345678）"),
+        db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    获取患者当前体重信息
+    通过手机号验证身份
+    """
+    # 1. 验证参数
+    if not phone or len(phone.strip()) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="手机号不能为空"
+        )
+
+    # 2. 查询患者
+    patient = get_patient_by_phone(db, phone.strip())
+    if not patient:
+        raise HTTPException(
+            status_code=404,
+            detail="患者不存在"
+        )
+
+    # 3. 返回体重信息
+    return {
+        "patient_id": patient.patient_id,
+        "phone": patient.phone,
+        "full_name": patient.full_name,
+        "weight": float(patient.weight) if patient.weight else None,
+        "bmi": patient.bmi,
+        "message": "获取体重信息成功"
+    }
 
 #========血糖记录相关=========#
 @router.post("/me/blood-glucose", response_model=dict)

@@ -13,6 +13,7 @@ import json
 
 logger = logging.getLogger(__name__)
 
+
 # 通过序号找患者，因为在创建患者时就把信息塞到token里面去了
 def get_patient_by_id(db: Session, patient_id: int):
     return db.query(Patient).filter(Patient.patient_id == patient_id).first()
