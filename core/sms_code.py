@@ -27,7 +27,7 @@ VERIFY_CODE_LENGTH = 6  # 6位数字验证码
 VERIFY_CODE_EXPIRE_HOURS = 1  # 有效期1小时
 VERIFY_CODE_EXPIRE_MINUTES = 5 # 有效期5分鐘
 VERIFY_CODE_SEND_INTERVAL = 60  # 防刷间隔：60秒
-SNS_SENDER_ID = "12Test12"  # 沙盒模式下可随意填（无需审核）
+SNS_SENDER_ID = "OPT"  # 沙盒模式下可随意填（无需审核）
 
 # 初始化AWS SNS客户端（自动加载本地配置）
 try:
@@ -191,7 +191,7 @@ def send_verification_code(
     else:
         # 沙盒模式真实发送
         sns_response = send_sms_via_sns_sandbox(phone, code)
-        print("沙盒模式发送验证码!");
+        print("沙盒模式发送验证码!")
         return {
             "success": True,
             "message": f"验证码{code}已发送至{phone}（沙盒模式），有效期{VERIFY_CODE_EXPIRE_HOURS}小时",
