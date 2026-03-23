@@ -12,7 +12,7 @@ DATABASE = get_parameter("rdb", "database") or "dialog"
 
 # 新增：isLocalDev 如果值为1则是本地测试，为0则到了服务器端
 ISLOCALDEV = get_parameter("dev", "isLocalDev")
-if ISLOCALDEV=="1":
+if ISLOCALDEV=="0":
     #这里只用修改HOST就行了，其余都不变
     HOST="diabetes-rds.cteaa20ag0h1.ap-southeast-1.rds.amazonaws.com"
     
