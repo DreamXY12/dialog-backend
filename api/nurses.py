@@ -61,10 +61,12 @@ async def assign_patient_to_nurse(
     分配患者给护士（替换为手机号）
     """
     # 验证手机号格式（可根据实际需求调整正则）
-    if not re.match(r'^1[3-9]\d{9}$', patient_phone):  # 匹配中国大陆手机号
+    phone_pattern = r'^(?:\+86)?1[3-9]\d{9}$|^\+852\d{8}$'
+
+    if not re.match(phone_pattern, patient_phone):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="患者手机号格式错误（需为11位有效手机号）"
+            detail="患者手机号格式错误！"
         )
 
     # 调用curd层（需同步修改为按手机号分配）
@@ -100,10 +102,11 @@ async def unassign_patient_from_nurse(
     护士解除患者分配（替换为手机号）
     """
     # 验证手机号格式
-    if not re.match(r'^1[3-9]\d{9}$', patient_phone):
+    phone_pattern = r'^(?:\+86)?1[3-9]\d{9}$|^\+852\d{8}$'
+    if not re.match(phone_pattern, patient_phone):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="患者手机号格式错误（需为11位有效手机号）"
+            detail="患者手机号格式错误！"
         )
 
     # 调用curd层（需同步修改为按手机号解除分配）
