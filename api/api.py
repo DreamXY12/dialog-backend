@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from api import auth,register,sms_router,patients,nurses,case,robot,feedback
+from api import auth,register,sms_router,patients,nurses,case,robot,feedback,chat_server
 
 api_router = APIRouter(prefix="/api/v1")
 

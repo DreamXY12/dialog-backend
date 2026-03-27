@@ -16,6 +16,9 @@ import binascii
 from contextlib import asynccontextmanager
 from config import get_parameter
 
+from api.chat_server import sio
+import socketio
+
 PASSWORD = get_parameter("rdb", "password")
 
 @asynccontextmanager
@@ -25,7 +28,6 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI()
-
 origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
@@ -36,6 +38,9 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+socket_app = socketio.ASGIApp(sio,app)
+#app.mount("/api/v1/chat", socket_app)
 
 @app.patch("/clean", description="clean and create table, it is for development only")
 async def clean(
@@ -78,5 +83,5 @@ async def add(
         raise HTTPException(401, detail="please enter the admin key for the operation")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(socket_app, host="0.0.0.0", port=8000)
 
