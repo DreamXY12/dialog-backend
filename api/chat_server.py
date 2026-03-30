@@ -6,12 +6,12 @@ import asyncio
 
 # 1. 创建 Socket.IO 异步服务
 sio = socketio.AsyncServer(
-    cors_allowed_origins="*",
+    cors_allowed_origins="*",        # 允许所有来源
     async_mode="asgi",
     cors_credentials=True,
-    allow_origin=None,
-    allow_headers=["*"],   # 👈 允许所有请求头
-    supports_credentials=True  # 👈 支持 Cookie 认证
+    allow_headers=["*"],             # 允许所有头
+    supports_credentials=True,       # 关键：允许跨域凭证
+    max_http_buffer_size=1e8,
 )
 
 # 在线用户
