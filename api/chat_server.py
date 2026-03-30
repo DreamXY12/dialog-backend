@@ -9,7 +9,9 @@ sio = socketio.AsyncServer(
     cors_allowed_origins="*",
     async_mode="asgi",
     cors_credentials=True,
-    allow_origin=None
+    allow_origin=None,
+    allow_headers=["*"],   # 👈 允许所有请求头
+    supports_credentials=True  # 👈 支持 Cookie 认证
 )
 
 # 在线用户
