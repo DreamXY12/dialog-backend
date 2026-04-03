@@ -1,6 +1,8 @@
 # 护士相关的sql操作
+import datetime
+
 from sqlalchemy.orm import Session
-from sql.people_models import Nurse, Patient
+from sql.people_models import Nurse, Patient,NurseWorkShift
 from typing import Optional,Dict, Any
 from sqlalchemy.exc import SQLAlchemyError  # 导入异常类
 
@@ -519,3 +521,126 @@ def get_patients_by_nurse_paginated(
                 "total_pages": 0
             }
         }
+
+def add_nurse_work_time(db: Session,nurse_id:int,start_time:datetime.time,end_time:datetime.time):
+    # 1. 获取当前日期（UTC时间，若需香港本地时间需做时区转换，见下方备注）
+    today = datetime.date.today()
+
+    # 3. 查询当日该护士是否已存在排班记录（防重复插入）
+    existing_shift = db.query(NurseWorkShift).filter(
+        NurseWorkShift.nurse_id == nurse_id,
+        NurseWorkShift.work_date == today
+    ).first()
+    # 4. 不存在则插入新记录，字段均用默认值（status默认scheduled，统计字段默认0）
+    if not existing_shift:
+        new_shift = NurseWorkShift(
+            nurse_id=nurse_id,
+            work_date=today,
+            work_start_time=start_time,
+            work_end_time=end_time
+            # 其余字段：shift_uuid(数据库自动生成)、status(默认scheduled)、统计字段(默认0) 无需手动传
+        )
+        db.add(new_shift)
+        db.commit()
+        db.refresh(new_shift)  # 刷新获取自动生成的shift_uuid/shift_id
+
+
+def update_nurse_today_work_time(
+        db: Session,
+        nurse_id: int,
+        new_start_time: datetime.time | None = None,
+        new_end_time: datetime.time | None = None
+):
+    """
+    更新护士当日的工作时间段
+    :param db: 数据库会话
+    :param nurse_id: 护士ID
+    :param new_start_time: 新的上班时间（可选，不传则不更新）
+    :param new_end_time: 新的下班时间（可选，不传则不更新）
+    :return: 更新后的NurseWorkShift对象 | None（无记录/未更新）
+    """
+    # 1. 空值校验：至少传一个时间参数，避免无意义更新
+    if new_start_time is None and new_end_time is None:
+        return None
+
+    # 2. 获取当日日期（和原新增函数一致，新加坡UTC+8，与香港日期无偏差）
+    today = datetime.date.today()
+
+    # 3. 查询当日该护士的排班记录
+    existing_shift = db.query(NurseWorkShift).filter(
+        NurseWorkShift.nurse_id == nurse_id,
+        NurseWorkShift.work_date == today
+    ).first()
+
+    # 4. 存在则更新时间，按需赋值（传啥更啥）
+    if existing_shift:
+        if new_start_time is not None:
+            existing_shift.work_start_time = new_start_time
+        if new_end_time is not None:
+            existing_shift.work_end_time = new_end_time
+        # 数据库已配置update_time ON UPDATE，无需手动赋值，提交即可
+        db.commit()
+        db.refresh(existing_shift)  # 刷新返回最新数据
+        return existing_shift
+    # 无当日班次记录则返回None
+    return None
+
+
+def update_nurse_appoint_work_time(
+        db: Session,
+        nurse_id: int,
+        work_date: datetime.date,
+        new_start_time: datetime.time | None = None,
+        new_end_time: datetime.time | None = None
+):
+    """
+    更新护士指定日期的工作时间段（支持任意日期，灵活扩展）
+    :param db: 数据库会话
+    :param nurse_id: 护士ID
+    :param work_date: 要更新的班次日期（如date(2025,10,1)）
+    :param new_start_time: 新的上班时间（可选，不传则不更新）
+    :param new_end_time: 新的下班时间（可选，不传则不更新）
+    :return: 更新后的NurseWorkShift对象 | None（无记录/未更新）
+    """
+    # 1. 空值校验：至少传一个时间参数
+    if new_start_time is None and new_end_time is None:
+        return None
+
+    # 2. 查询指定日期该护士的排班记录
+    existing_shift = db.query(NurseWorkShift).filter(
+        NurseWorkShift.nurse_id == nurse_id,
+        NurseWorkShift.work_date == work_date
+    ).first()
+
+    # 3. 存在则更新时间
+    if existing_shift:
+        if new_start_time is not None:
+            existing_shift.work_start_time = new_start_time
+        if new_end_time is not None:
+            existing_shift.work_end_time = new_end_time
+        db.commit()
+        db.refresh(existing_shift)
+        return existing_shift
+    # 无指定日期班次记录则返回None
+    return None
+
+def get_nurse_today_work_time_curd(db: Session,nurse_id: int):
+    # 查询当日排班记录
+    today = datetime.date.today()
+    shift = db.query(NurseWorkShift).filter(
+        NurseWorkShift.nurse_id == nurse_id,
+        NurseWorkShift.work_date == today
+    ).first()
+    # 无记录则自动创建（调用你写的新增函数，默认香港长白班）
+    if not shift:
+        add_nurse_work_time(
+            db=db,
+            nurse_id=nurse_id,
+            start_time=datetime.time(hour=9, minute=0),
+            end_time=datetime.time(hour=18, minute=0)
+        )
+        shift = db.query(NurseWorkShift).filter(
+            NurseWorkShift.nurse_id == nurse_id,
+            NurseWorkShift.work_date == today
+        ).first()
+    return shift
