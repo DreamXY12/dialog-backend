@@ -55,5 +55,5 @@ class ActiveSessionResponse(BaseModel):
 
 class UnreadCountResponse(BaseModel):
     unread_count: int
-    room_id: int
+    room_uuid: str
     session_uuid: Optional[str] = None

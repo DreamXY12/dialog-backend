@@ -504,3 +504,64 @@ def get_chat_room_info(
     except Exception as e:
         print(f"获取聊天室信息失败: {str(e)}")
         return None
+
+
+def get_room_uuid_by_id(
+        db: Session,
+        patient_id: Optional[int] = None,
+        nurse_id: Optional[int] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    通过患者ID / 护士ID获取聊天室UUID（room_uuid）
+    - 传patient_id：返回该患者唯一的聊天室信息（一对一）
+    - 传nurse_id：返回该护士关联的所有患者聊天室列表（一对多）
+    - 两个参数不能同时为空
+    Args:
+        db: 数据库会话
+        patient_id: 患者ID（可选）
+        nurse_id: 护士ID（可选）
+    Returns:
+        传patient_id → dict(room_id, room_uuid, nurse_id) | None
+        传nurse_id → list[dict(room_id, room_uuid, patient_id)] | None
+    """
+    try:
+        # 校验参数：至少传一个ID
+        if not patient_id and not nurse_id:
+            print("错误：必须传入patient_id或nurse_id")
+            return None
+
+        query = db.query(ChatRoom)
+        # 按患者ID查询（一对一，患者唯一对应一个聊天室）
+        if patient_id:
+            chat_room = query.filter(ChatRoom.patient_id == patient_id).first()
+            if not chat_room:
+                print(f"患者{patient_id}未创建聊天室")
+                return None
+            patient_id_test = chat_room.patient_id
+            return {
+                "room_id": chat_room.room_id,
+                "room_uuid": chat_room.room_uuid,
+                "nurse_id": chat_room.nurse_id  # 关联的护士ID
+            }
+
+        # 按护士ID查询（一对多，护士对应多个患者聊天室）
+        if nurse_id:
+            chat_rooms = query.filter(
+                ChatRoom.nurse_id == nurse_id,
+                ChatRoom.room_status == RoomStatus.ACTIVE  # 只查活跃的聊天室
+            ).all()
+            if not chat_rooms:
+                print(f"护士{nurse_id}暂无关联的患者聊天室")
+                return []
+            return [
+                {
+                    "room_id": cr.room_id,
+                    "room_uuid": cr.room_uuid,
+                    "patient_id": cr.patient_id  # 关联的患者ID
+                }
+                for cr in chat_rooms
+            ]
+
+    except Exception as e:
+        print(f"通过ID获取room_uuid失败: {str(e)}")
+        return None

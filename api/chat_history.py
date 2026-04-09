@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func,asc
+from twilio.twiml.voice_response import Room
 
 # 假设你已经有了这些导入
 from sql.start import get_db
@@ -26,8 +27,12 @@ router = APIRouter(tags=["chat-history"])
 
 
 # ==================== 辅助函数 ====================
-def get_current_active_session(room_id: int, db: Session) -> Optional[ConversationSession]:
+def get_current_active_session(room_uuid: str, db: Session) -> Optional[ConversationSession]:
     """获取房间的当前活跃会话"""
+
+    result = db.query(ChatRoom).filter(ChatRoom.room_uuid == room_uuid).one_or_none()
+    room_id = result.room_id
+
     return db.query(ConversationSession).filter(
         ConversationSession.room_id == room_id,
         ConversationSession.session_status == SessionStatus.ACTIVE
@@ -106,73 +111,7 @@ async def get_patient_chat_room_uuid(
         "created": created
     }
 
-
-# @router.get("/sessions/{session_uuid}/messages", response_model=MessageListResponse)
-# async def get_session_messages(
-#         session_uuid: str,
-#         page: int = Query(1, ge=1, description="页码"),
-#         page_size: int = Query(50, ge=1, le=100, description="每页数量"),
-#         db: Session = Depends(get_db)
-# ):
-#     """
-#     获取会话的消息列表
-#     - 按创建时间倒序排列（最新的在前面）
-#     - 支持分页
-#     """
-#     try:
-#         # 验证会话是否存在
-#         session = db.query(ConversationSession).filter(
-#             ConversationSession.session_uuid == session_uuid
-#         ).first()
-#
-#         if not session:
-#             raise HTTPException(status_code=404, detail="会话不存在")
-#
-#         # 计算总数
-#         total_count = db.query(Message).filter(
-#             Message.session_uuid == session_uuid
-#         ).count()
-#
-#         # 分页查询消息
-#         offset = (page - 1) * page_size
-#         messages = db.query(Message).filter(
-#             Message.session_uuid == session_uuid
-#         ).order_by(desc(Message.create_time)).offset(offset).limit(page_size).all()
-#
-#         # 构建响应
-#         message_list = []
-#         for msg in messages:
-#             message_data = {
-#                 "message_uuid": msg.message_uuid,
-#                 "session_uuid": msg.session_uuid,
-#                 "sender_type": msg.sender_type.value,
-#                 "sender_id": msg.sender_id,
-#                 "content": msg.content,
-#                 "message_type": msg.message_type.value if msg.message_type else "text",
-#                 "file_url": msg.file_url,
-#                 "is_read": msg.is_read,
-#                 "read_time": msg.read_time.isoformat() if msg.read_time else None,
-#                 "read_by_user_id": msg.read_by_user_id,
-#                 "read_by_role": msg.read_by_role,
-#                 "chat_mode": msg.chat_mode.value if msg.chat_mode else "AI",
-#                 "create_time": msg.create_time.isoformat() if msg.create_time else None
-#             }
-#             message_list.append(message_data)
-#
-#         return {
-#             "session_uuid": session_uuid,
-#             "total_count": total_count,
-#             "page": page,
-#             "page_size": page_size,
-#             "total_pages": (total_count + page_size - 1) // page_size,
-#             "messages": message_list
-#         }
-#
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"获取消息失败: {str(e)}")
-
+#这是按照会话来分类的，可以留着，万一之后得区分对话呢？
 @router.get("/sessions/{session_uuid}/messages", response_model=MessageListResponse)
 async def get_session_messages(
     session_uuid: str,
@@ -297,9 +236,9 @@ async def mark_message_as_read(
         raise HTTPException(status_code=500, detail=f"标记已读失败: {str(e)}")
 
 
-@router.get("/rooms/{room_id}/unread-count", response_model=UnreadCountResponse)
+@router.get("/rooms/{room_uuid}/unread-count", response_model=UnreadCountResponse)
 async def get_unread_message_count(
-        room_id: int,
+        room_uuid: str,
         user_id: int = Query(..., description="用户ID"),
         user_role: str = Query(..., description="用户角色", regex="^(patient|nurse)$"),
         db: Session = Depends(get_db)
@@ -310,28 +249,36 @@ async def get_unread_message_count(
     """
     try:
         # 获取当前活跃会话
-        active_session = get_current_active_session(room_id, db)
+        active_session = get_current_active_session(room_uuid, db)
         if not active_session:
-            return {"unread_count": 0, "room_id": room_id}
+            return {"unread_count": 0, "room_id": room_uuid}
 
         # 根据用户角色确定对方类型
         if user_role == "patient":
-            target_sender_types = ["nurse", "system"]
+            target_sender_types = ["nurse", "system","ai"]
         elif user_role == "nurse":
-            target_sender_types = ["patient", "system"]
+            target_sender_types = ["patient", "system","ai"]
         else:
             target_sender_types = []
 
         # 计算未读消息数
-        unread_count = db.query(func.count(Message.message_id)).filter(
+        unread_count = db.query(func.count(Message.message_id)).join(
+            ConversationSession,  # 关联会话表
+            Message.session_uuid == ConversationSession.session_uuid  # 关联条件
+        ).filter(
+            # 只统计当前活跃会话的消息
             Message.session_uuid == active_session.session_uuid,
+            # 未读状态（Boolean类型，用False更规范）
             Message.is_read == False,
-            Message.sender_type.in_(target_sender_types)
+            # 只统计目标发送者的消息
+            Message.sender_type.in_(target_sender_types),
+            # 🔥 新增：排除自己发送的消息（避免统计自己发的未读）
+            Message.sender_id != user_id
         ).scalar()
 
         return {
             "unread_count": unread_count or 0,
-            "room_id": room_id,
+            "room_uuid": room_uuid,
             "session_uuid": active_session.session_uuid
         }
 
@@ -645,3 +592,151 @@ async def end_expired_sessions(db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"清理过期会话失败: {str(e)}")
+
+@router.get("/rooms/{room_uuid}/all-messages", response_model=MessageListResponse)
+async def get_room_all_messages(
+    room_uuid: str,
+    order: str = Query("asc", description="排序方式: asc-正序, desc-倒序"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=200),
+    days_limit: int = Query(3, ge=0),
+    db: Session = Depends(get_db)
+):
+    """
+    ✅ 跨会话获取房间历史消息
+    ✅ 完全对齐前端字段
+    ✅ 消息顺序：旧 → 新（适合聊天渲染）
+    """
+    try:
+        # 1. 获取房间
+        chat_room = get_chat_room_by_uuid(db, room_uuid)
+        if not chat_room:
+            raise HTTPException(status_code=404, detail="聊天室不存在")
+
+        room_id = chat_room.room_id
+
+        # 2. 关联查询：房间下所有会话的所有消息
+        query = db.query(Message).join(
+            ConversationSession,
+            ConversationSession.session_uuid == Message.session_uuid
+        ).filter(
+            ConversationSession.room_id == room_id
+        )
+
+        # 3. 最近3天
+        if days_limit > 0:
+            cutoff_date = datetime.now() - timedelta(days=days_limit)
+            query = query.filter(Message.create_time >= cutoff_date)
+
+        total_count = query.count()
+
+        # 4. 先取最新100条
+        messages = query.order_by(desc(Message.create_time)).limit(page_size).all()
+
+        # 5. 反转 = 旧消息在前，新消息在后（前端渲染正常）
+        messages = messages[::-1]
+
+        # ==============================
+        # 🔥 字段 100% 对齐你的前端
+        # ==============================
+        message_list = []
+        for msg in messages:
+            message_list.append({
+                "message_uuid": msg.message_uuid,
+                "session_uuid": msg.session_uuid,
+                "sender_id": msg.sender_id,
+                "sender_type": msg.sender_type.value,
+                "content": msg.content,
+                "chat_mode": msg.chat_mode.value if msg.chat_mode else "AI",
+                "is_read": msg.is_read,
+                "read_time": msg.read_time.isoformat() if msg.read_time else None,
+                "read_by_user_id": msg.read_by_user_id,
+                "read_by_role": msg.read_by_role,
+                "create_time": msg.create_time.isoformat() if msg.create_time else None,
+                "message_type": msg.message_type.value if msg.message_type else "text",
+                "file_url": msg.file_url,
+            })
+
+        return {
+            "session_uuid": "",  # 修复：不能为空，必须传字符串
+            "total_count": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": 1,
+            "messages": message_list
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取房间消息失败: {str(e)}")
+
+@router.get("/rooms/{room_uuid}/recently-messages", response_model=MessageListResponse)
+async def get_room_recently_messages(
+    room_uuid: str,
+    order: str = Query("asc", description="排序方式: asc-正序, desc-倒序"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(120, ge=1, le=200),  # 默认120条
+    db: Session = Depends(get_db)
+):
+    """
+    ✅ 获取房间最新120条历史消息（跨会话，不限制天数）
+    ✅ 顺序：旧消息在前 → 新消息在后（前端直接渲染）
+    ✅ 完全对齐你的前端字段
+    """
+    try:
+        # 1. 获取房间
+        chat_room = get_chat_room_by_uuid(db, room_uuid)
+        if not chat_room:
+            raise HTTPException(status_code=404, detail="聊天室不存在")
+
+        room_id = chat_room.room_id
+
+        # 2. 查询该房间下所有会话的消息
+        query = db.query(Message).join(
+            ConversationSession,
+            ConversationSession.session_uuid == Message.session_uuid
+        ).filter(
+            ConversationSession.room_id == room_id
+        )
+
+        total_count = query.count()
+
+        # 3. 取最新120条（倒序）
+        messages = query.order_by(desc(Message.create_time)).limit(page_size).all()
+
+        # 4. 反转 → 旧→新，前端聊天正常渲染
+        messages = messages[::-1]
+
+        # 5. 字段100%对齐前端
+        message_list = []
+        for msg in messages:
+            message_list.append({
+                "message_uuid": msg.message_uuid,
+                "session_uuid": msg.session_uuid,
+                "sender_id": msg.sender_id,
+                "sender_type": msg.sender_type.value,
+                "content": msg.content,
+                "chat_mode": msg.chat_mode.value if msg.chat_mode else "AI",
+                "is_read": msg.is_read,
+                "read_time": msg.read_time.isoformat() if msg.read_time else None,
+                "read_by_user_id": msg.read_by_user_id,
+                "read_by_role": msg.read_by_role,
+                "create_time": msg.create_time.isoformat() if msg.create_time else None,
+                "message_type": msg.message_type.value if msg.message_type else "text",
+                "file_url": msg.file_url,
+            })
+
+        return {
+            "session_uuid": "",
+            "total_count": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": 1,
+            "messages": message_list
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取房间消息失败: {str(e)}")

@@ -4,6 +4,7 @@ import datetime
 from sqlalchemy.orm import Session
 from sql.people_models import Nurse, Patient,NurseWorkShift
 from typing import Optional,Dict, Any
+from sql.chat_histoty_curd import get_room_uuid_by_id
 from sqlalchemy.exc import SQLAlchemyError  # 导入异常类
 
 def get_nurse_by_phone(db: Session, phone: str) -> Nurse | None:
@@ -411,31 +412,12 @@ def get_patients_by_nurse_paginated(
     """
     分页获取指定护士管理的所有患者
     适配字段变更：Patient.assigned_nurse_id 关联 Nurse.nurse_id
-
-    Args:
-        db: 数据库会话对象
-        nurse_phone: 护士手机号（带区号）
-        page: 页码（默认1）
-        page_size: 每页条数（默认20）
-        search: 搜索关键词（可选，匹配姓名/手机号）
-
-    Returns:
-        包含分页数据的字典，格式：
-        {
-            "patients": [患者列表],
-            "pagination": {
-                "page": 当前页,
-                "page_size": 每页条数,
-                "total_count": 总条数,
-                "total_pages": 总页数
-            }
-        }
+    修复：每个患者返回独立的room_uuid
     """
     try:
-        # 🔴 新增：先查询护士信息，获取nurse_id（核心修改）
+        # 1. 查询护士信息，获取nurse_id
         nurse = db.query(Nurse).filter(Nurse.phone == nurse_phone).first()
         if not nurse:
-            # 护士不存在，返回空数据
             return {
                 "patients": [],
                 "pagination": {
@@ -446,59 +428,61 @@ def get_patients_by_nurse_paginated(
                 }
             }
 
-        # 🔴 修改1：筛选条件改为assigned_nurse_id匹配nurse_id
+        # 2. 筛选该护士管理的患者
         query = db.query(Patient).filter(Patient.assigned_nurse_id == nurse.nurse_id)
 
-        # 2. 搜索条件（匹配姓名/手机号）- 逻辑不变
+        # 3. 搜索条件（匹配姓名/手机号）
         if search and search.strip():
             search_term = f"%{search.strip()}%"
             query = query.filter(
-                (Patient.phone.ilike(search_term)) |  # 手机号模糊匹配
-                (Patient.first_name.ilike(search_term)) |  # 姓氏模糊匹配
-                (Patient.last_name.ilike(search_term))  # 名字模糊匹配
+                (Patient.phone.ilike(search_term)) |
+                (Patient.first_name.ilike(search_term)) |
+                (Patient.last_name.ilike(search_term))
             )
 
-        # 3. 计算总条数和总页数 - 逻辑不变
+        # 4. 计算分页参数
         total_count = query.count()
-        total_pages = (total_count + page_size - 1) // page_size  # 向上取整
-
-        # 4. 分页查询 - 逻辑不变
+        total_pages = (total_count + page_size - 1) // page_size
         offset = (page - 1) * page_size
         patients = query.order_by(Patient.create_time.desc()).offset(offset).limit(page_size).all()
 
-        # 5. 格式化患者数据（适配字段变更）
+        # 5. 格式化患者数据（核心：循环内为每个患者单独获取room_uuid）
         formatted_patients = []
         for patient in patients:
-            # 计算BMI（复用模型中的bmi计算属性）
+            # 计算BMI和年龄
             bmi = patient.bmi if hasattr(patient, 'bmi') else None
-
-            # 计算年龄（复用模型中的age计算属性）
             age = patient.age if hasattr(patient, 'age') else None
+
+            # 🔥 修复1：移到循环内 + 传当前患者的patient_id（实例属性）
+            # 🔥 修复2：增加空值判断，避免报错
+            room_info = get_room_uuid_by_id(db, patient_id=patient.patient_id)
+            current_room_uuid = room_info["room_uuid"] if (room_info and "room_uuid" in room_info) else None
 
             formatted_patients.append({
                 "patient_id": patient.patient_id,
                 "phone": patient.phone,
                 "first_name": patient.first_name,
                 "last_name": patient.last_name,
-                "full_name": patient.full_name,  # 复用模型中的full_name属性
+                "full_name": patient.full_name,
                 "date_of_birth": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
                 "age": age,
-                "sex": patient.sex.value if patient.sex else None,  # 枚举值转字符串
+                "sex": patient.sex.value if patient.sex else None,
                 "family_history": patient.family_history.value if patient.family_history else None,
                 "smoking_status": patient.smoking_status.value if patient.smoking_status else None,
                 "drinking_history": patient.drinking_history.value if patient.drinking_history else None,
                 "height": float(patient.height) if patient.height else None,
                 "weight": float(patient.weight) if patient.weight else None,
                 "bmi": bmi,
-                # 🔴 修改2：替换字段 - 移除assigned_nurse_phone，新增assigned_nurse_id和护士信息
                 "assigned_nurse_id": patient.assigned_nurse_id,
-                "assigned_nurse_name": nurse.full_name,  # 补充护士姓名（提升返回数据可用性）
-                "assigned_nurse_phone": nurse.phone,  # 保留手机号（兼容前端，可选）
+                "assigned_nurse_name": nurse.full_name,
+                "assigned_nurse_phone": nurse.phone,
                 "create_time": patient.create_time.isoformat() if patient.create_time else None,
-                "update_time": patient.update_time.isoformat() if patient.update_time else None
+                "update_time": patient.update_time.isoformat() if patient.update_time else None,
+                # 🔥 修复3：赋值当前患者的独立room_uuid
+                "room_uuid": current_room_uuid
             })
 
-        # 6. 组装返回结果 - 逻辑不变
+        # 6. 组装返回结果
         return {
             "patients": formatted_patients,
             "pagination": {
@@ -510,8 +494,7 @@ def get_patients_by_nurse_paginated(
         }
 
     except Exception as e:
-        print(f"获取护士患者列表失败: {str(e)}")  # 替换为日志记录
-        # 返回空数据，避免接口报错
+        print(f"获取护士患者列表失败: {str(e)}")
         return {
             "patients": [],
             "pagination": {
