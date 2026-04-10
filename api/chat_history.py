@@ -4,7 +4,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, func,asc
-from twilio.twiml.voice_response import Room
+from sql.nurse_curd import get_nurse_full_name
+from sql.patient_curd import get_patient_full_name
 
 # 假设你已经有了这些导入
 from sql.start import get_db
@@ -711,11 +712,22 @@ async def get_room_recently_messages(
         # 5. 字段100%对齐前端
         message_list = []
         for msg in messages:
+            from_name="ai"
+            if msg.sender_type.value == "patient":
+                from_name= get_patient_full_name(db, int(msg.sender_id))
+            elif msg.sender_type.value == "nurse":
+                from_name = get_nurse_full_name(db,int(msg.sender_id))
+            elif msg.sender_type.value == "ai":
+                from_name="糖尿病AI助手"
+            elif msg.sender_type.value == "system":
+                from_name = "系统"
             message_list.append({
                 "message_uuid": msg.message_uuid,
                 "session_uuid": msg.session_uuid,
                 "sender_id": msg.sender_id,
                 "sender_type": msg.sender_type.value,
+                "role": msg.sender_type.value,
+                "from_name":from_name,
                 "content": msg.content,
                 "chat_mode": msg.chat_mode.value if msg.chat_mode else "AI",
                 "is_read": msg.is_read,

@@ -35,6 +35,12 @@ def get_nurse_by_id(db: Session, nurse_id: int) -> Optional[Nurse]:
         print(f"查询护士信息失败（ID: {nurse_id}）：{str(e)}")  # 建议替换为日志库（如logging）
         return None
 
+def get_nurse_full_name(db:Session, nurse_id: int) -> str | None:
+    nurse = get_nurse_by_id(db, nurse_id)
+    if nurse:
+        return nurse.full_name
+    return None
+
 
 def get_nurse_id_by_phone(db: Session, phone: str) -> Optional[int]:
     """

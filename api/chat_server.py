@@ -29,7 +29,7 @@ SESSION_TIMEOUT_HOURS = 4  # 会话超时时间：小时
 
 # 1. 创建 Socket.IO 异步服务
 sio = socketio.AsyncServer(
-    cors_allowed_origins="*",        # 允许所有来源
+    cors_allowed_origins="https://dialog.polyusn.com",        # 允许所有来源
     async_mode="asgi",
     cors_credentials=True,
     allow_headers=["*"],             # 允许所有头
@@ -173,11 +173,11 @@ async def get_nurse_patient_ids(nurse_id: str, db) -> List[str]:
 @sio.event
 async def connect(sid, environ, auth):
     if not auth:
-        return False  # 无认证拒绝连接
+        return  # 无认证拒绝连接
     user_id = str(auth.get("user_id"))
     role = auth.get("role")
     if not user_id or not role or role not in ["nurse", "patient"]:
-        return False  # 无ID/角色/角色错误拒绝连接
+        return  # 无ID/角色/角色错误拒绝连接
 
     # 记录在线用户+角色
     online_users[user_id] = sid
@@ -188,7 +188,6 @@ async def connect(sid, environ, auth):
     db: Session = next(get_db())
     await broadcast_online_status(user_id, role, online=True, db=db)
     db.close()
-    return True
 
 @sio.event
 async def join_room(sid, data):
@@ -345,7 +344,7 @@ async def send_message(sid, data):
         # 3. 检查会话超时，自动创建新会话
         active_session = get_current_active_session(str(chat_room.room_id), db)
         if not active_session:
-            active_session = create_new_session(str(chat_room.room_id), str(sender_id), role, db)
+            active_session = await create_new_session(str(chat_room.room_id), str(sender_id), role, db)
 
         # 4. 保存消息到数据库
         message, created = get_or_create_message(

@@ -21,6 +21,7 @@ class MessageDetail(BaseModel):
     sender_type: str
     sender_id: int
     content: Optional[str]
+    from_name:str
     message_type: str = "text"
     file_url: Optional[str] = None
     is_read: bool = False

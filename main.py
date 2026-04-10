@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI()
-origins = ["*"]
+origins = ["https://dialog.polyusn.com"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -40,7 +40,7 @@ app.add_middleware(
 app.include_router(api_router)
 
 socket_app = socketio.ASGIApp(sio)
-app.mount("/", socket_app)
+app.mount("/socket.io", socket_app)
 
 @app.patch("/clean", description="clean and create table, it is for development only")
 async def clean(

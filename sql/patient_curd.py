@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 def get_patient_by_id(db: Session, patient_id: int):
     return db.query(Patient).filter(Patient.patient_id == patient_id).first()
 
+def get_patient_full_name(db: Session, patient_id: int) -> str|None:
+    patient = get_patient_by_id(db, patient_id)
+    if patient:
+        return str(patient.full_name)
+    return None
+
 def get_patient_by_phone(db: Session, phone: str) -> Patient | None:
     """按手机号查询患者（核心函数）"""
     return db.query(Patient).filter(Patient.phone == phone).first()
