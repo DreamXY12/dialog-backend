@@ -13,6 +13,7 @@ from datetime import datetime
 from sql.people_models import ConversationSession, ChatRoom
 from typing import Any
 from datetime import time
+import pytz
 
 # 初始化路由
 router = APIRouter(prefix="/nurses", tags=["nurses"])
@@ -313,9 +314,12 @@ def get_nurse_today_work_time(nurse_id: int, db: Session = Depends(get_db)):
         if not shift:
             raise Exception("未查询到该护士当日排班记录")
 
-        # 2. 获取服务器当前本地时间（新加坡UTC+8，与香港时间一致）
-        now = datetime.now()
-        current_time = now.time()  # 提取当前时分秒（如09:30:25）
+        # ==============================================
+        # ✅ 核心修复：强制用新加坡时区，不受系统影响
+        # ==============================================
+        sg_tz = pytz.timezone("Asia/Singapore")
+        now = datetime.now(sg_tz)  # 拿到新加坡当前时间
+        current_time = now.time()
 
         # 3. 核心判断：当前时间是否在护士工作时间区间内
         # work_start_time/work_end_time为数据库的time类型，可直接比较
