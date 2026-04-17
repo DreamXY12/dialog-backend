@@ -24,6 +24,12 @@ def get_patient_full_name(db: Session, patient_id: int) -> str|None:
         return str(patient.full_name)
     return None
 
+def get_nurse(db: Session, patient_id: int):
+    patient = get_patient_by_id(db, patient_id)
+    if patient:
+        return patient.assigned_nurse_id
+    return None
+
 def get_patient_by_phone(db: Session, phone: str) -> Patient | None:
     """按手机号查询患者（核心函数）"""
     return db.query(Patient).filter(Patient.phone == phone).first()

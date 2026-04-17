@@ -3,7 +3,7 @@ import datetime
 
 from sqlalchemy.orm import Session
 from sql.people_models import Nurse, Patient,NurseWorkShift
-from typing import Optional,Dict, Any
+from typing import Optional,Dict, Any,List
 from sql.chat_histoty_curd import get_room_uuid_by_id
 from sqlalchemy.exc import SQLAlchemyError  # 导入异常类
 
@@ -407,6 +407,28 @@ def unassign_patient_from_specific_nurse_by_phone(
 #                 "total_pages": 0
 #             }
 #         }
+
+def get_patient_ids_by_nurse(
+    db: Session,
+    nurse_id: int
+) -> List[int]:
+    """
+    根据护士 nurse_id，获取该护士已分配的所有患者 patient_id 列表
+    返回：List[patient_id]
+    """
+    try:
+        # 直接查询该护士分配的所有患者，只取 patient_id
+        patient_ids = (
+            db.query(Patient.patient_id)
+            .filter(Patient.assigned_nurse_id == nurse_id)
+            .all()
+        )
+        # 把 [(1,), (2,)] 转成 [1, 2]
+        return [pid[0] for pid in patient_ids]
+
+    except Exception as e:
+        print(f"获取护士患者ID失败: {str(e)}")
+        return []
 
 def get_patients_by_nurse_paginated(
         db: Session,
