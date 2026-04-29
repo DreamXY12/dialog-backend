@@ -234,7 +234,7 @@ async def batch_assign_patients_to_nurse(
         )
 
 
-# 消息返回模型（适配前端ChatMessage类型）
+# 消息返回模型（适配前端ChatMessage类型）废弃
 class ChatMessageSchema:
     def __init__(self, msg: Message):
         self.message_id = msg.message_id
@@ -243,7 +243,6 @@ class ChatMessageSchema:
         self.sender_id = msg.sender_id
         self.create_time = msg.create_time.strftime("%Y-%m-%d %H:%M:%S")  # 统一时间格式
         self.chat_mode = msg.chat_mode.value  # 转字符串：AI/assist/nurseType
-        self.is_read = 1 if msg.is_read else 0
 
 
 @router.get("/patient/{patient_phone}/messages", summary="查询患者所有对话记录（按天分组用）")

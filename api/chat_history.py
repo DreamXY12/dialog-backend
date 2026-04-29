@@ -120,10 +120,13 @@ async def get_session_messages(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(50, ge=1, le=100, description="每页数量"),
     days_limit: int = Query(3, ge=1, description="限制天数，0表示不限制"),
+    reader_id: int = Query(..., description="请求者ID"),
+    reader_role: str = Query(..., description="请求者角色", regex="^(patient|nurse)$"),
     db: Session = Depends(get_db)
 ):
     """
-    获取会话的消息列表
+    获取会话的消息列表（适配独立已读模型）
+    - 根据 reader_id / reader_role 动态返回 is_read
     - 支持正序(asc)和倒序(desc)排列
     - 支持限制获取天数内的消息
     """
@@ -143,40 +146,44 @@ async def get_session_messages(
 
         # 如果设置了天数限制，只获取指定天数内的消息
         if days_limit > 0:
-            cutoff_date = datetime.utcnow() - timedelta(days=days_limit)
+            cutoff_date = datetime.now() - timedelta(days=days_limit)
             query = query.filter(Message.create_time >= cutoff_date)
 
         # 计算总数
         total_count = query.count()
 
-        # ==================== 核心修改：兼容asc参数，优先取最新消息 ====================
-        # 无论前端传asc还是desc，先按「创建时间倒序」查询（确保先拿到最新消息）
+        # 按创建时间倒序查询
         query = query.order_by(desc(Message.create_time))
 
-        # 分页查询（page=1 对应最新的 page_size 条消息）
+        # 分页
         offset = (page - 1) * page_size
         messages = query.offset(offset).limit(page_size).all()
 
-        # 如果前端要求正序（asc），则将结果反转（最新消息在后，最旧在前，符合正序逻辑）
+        # 如果前端要求正序，反转列表
         if order.lower() == "asc":
-            messages = messages[::-1]  # 反转列表，转为正序
-        # 如果是desc，保持倒序（最新消息在前）
+            messages = messages[::-1]
 
         # 构建响应
         message_list = []
         for msg in messages:
+            # 动态计算 is_read
+            if reader_role == "nurse":
+                msg_is_read = msg.nurse_read
+            else:
+                msg_is_read = msg.patient_read
+
             message_data = {
                 "message_uuid": msg.message_uuid,
                 "session_uuid": msg.session_uuid,
+                "room_id": msg.room_id,  # 新增返回房间ID
                 "sender_type": msg.sender_type.value,
                 "sender_id": msg.sender_id,
                 "content": msg.content,
                 "message_type": msg.message_type.value if msg.message_type else "text",
                 "file_url": msg.file_url,
-                "is_read": msg.is_read,
-                "read_time": msg.read_time.isoformat() if msg.read_time else None,
-                "read_by_user_id": msg.read_by_user_id,
-                "read_by_role": msg.read_by_role,
+                "is_read": msg_is_read,          # 动态，每个用户独立
+                "patient_read": msg.patient_read, # 可选，便于调试
+                "nurse_read": msg.nurse_read,     # 可选，便于调试
                 "chat_mode": msg.chat_mode.value if msg.chat_mode else "AI",
                 "create_time": msg.create_time.isoformat() if msg.create_time else None
             }
@@ -201,25 +208,28 @@ async def get_session_messages(
 
 @router.post("/messages/{message_uuid}/read")
 async def mark_message_as_read(
-        message_uuid: str,
-        reader_id: int = Query(..., description="阅读者ID"),
-        reader_role: str = Query(..., description="阅读者角色", regex="^(patient|nurse)$"),
-        db: Session = Depends(get_db)
+    message_uuid: str,
+    reader_id: int = Query(..., description="阅读者ID"),
+    reader_role: str = Query(..., description="阅读者角色", regex="^(patient|nurse)$"),
+    db: Session = Depends(get_db)
 ):
     """
-    标记消息为已读
+    标记消息为已读（独立已读模型）
+    - 护士阅读：更新 nurse_read = 1
+    - 患者阅读：更新 patient_read = 1
     """
     try:
         message = db.query(Message).filter(Message.message_uuid == message_uuid).first()
-
         if not message:
             raise HTTPException(status_code=404, detail="消息不存在")
 
-        # 更新已读状态
-        message.is_read = True
-        message.read_time = datetime.utcnow()
-        message.read_by_user_id = reader_id
-        message.read_by_role = reader_role
+        # 按角色更新对应字段
+        if reader_role == "nurse":
+            message.nurse_read = True
+        elif reader_role == "patient":
+            message.patient_read = True
+        else:
+            raise HTTPException(status_code=400, detail="无效的阅读者角色")
 
         db.commit()
 
@@ -227,7 +237,8 @@ async def mark_message_as_read(
             "success": True,
             "message": "消息已标记为已读",
             "message_uuid": message_uuid,
-            "read_time": message.read_time.isoformat()
+            "reader_role": reader_role,
+            "read_time": datetime.now().isoformat()  # 可选择记录时间，但表内无持久化字段，这里仅返回临时时间
         }
 
     except HTTPException:
@@ -239,41 +250,44 @@ async def mark_message_as_read(
 
 @router.get("/rooms/{room_uuid}/unread-count", response_model=UnreadCountResponse)
 async def get_unread_message_count(
-        room_uuid: str,
-        user_id: int = Query(..., description="用户ID"),
-        user_role: str = Query(..., description="用户角色", regex="^(patient|nurse)$"),
-        db: Session = Depends(get_db)
+    room_uuid: str,
+    user_id: int = Query(..., description="用户ID"),
+    user_role: str = Query(..., description="用户角色", regex="^(patient|nurse)$"),
+    db: Session = Depends(get_db)
 ):
     """
-    获取房间的未读消息数
-    - 只计算对方发送的未读消息
+    获取房间的未读消息数（独立已读模型）
+    - 根据 user_role 读取 nurse_read 或 patient_read
+    - 仅统计当前活跃会话中对方/系统的未读消息
     """
     try:
-        # 获取当前活跃会话
+        # 获取当前活跃会话（你原有的函数）
         active_session = get_current_active_session(room_uuid, db)
         if not active_session:
             return {"unread_count": 0, "room_id": room_uuid}
 
-        # 根据用户角色确定对方类型
+        # 根据用户角色确定统计哪些发送者
         if user_role == "patient":
-            target_sender_types = ["nurse", "system","ai"]
+            target_sender_types = ["nurse", "system", "ai"]
+            read_column = Message.patient_read
         elif user_role == "nurse":
-            target_sender_types = ["patient", "system","ai"]
+            target_sender_types = ["patient", "system", "ai"]
+            read_column = Message.nurse_read
         else:
-            target_sender_types = []
+            return {"unread_count": 0, "room_id": room_uuid}
 
         # 计算未读消息数
         unread_count = db.query(func.count(Message.message_id)).join(
-            ConversationSession,  # 关联会话表
-            Message.session_uuid == ConversationSession.session_uuid  # 关联条件
+            ConversationSession,
+            Message.session_uuid == ConversationSession.session_uuid
         ).filter(
-            # 只统计当前活跃会话的消息
+            # 限定当前活跃会话
             Message.session_uuid == active_session.session_uuid,
-            # 未读状态（Boolean类型，用False更规范）
-            Message.is_read == False,
-            # 只统计目标发送者的消息
+            # 使用独立已读字段：未读即 read_column == False
+            read_column == False,
+            # 只统计目标发送者
             Message.sender_type.in_(target_sender_types),
-            # 🔥 新增：排除自己发送的消息（避免统计自己发的未读）
+            # 排除自己发送的消息
             Message.sender_id != user_id
         ).scalar()
 
@@ -601,12 +615,14 @@ async def get_room_all_messages(
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=200),
     days_limit: int = Query(3, ge=0),
+    reader_id: int = Query(..., description="请求者ID"),
+    reader_role: str = Query(..., description="请求者角色", regex="^(patient|nurse)$"),
     db: Session = Depends(get_db)
 ):
     """
-    ✅ 跨会话获取房间历史消息
-    ✅ 完全对齐前端字段
-    ✅ 消息顺序：旧 → 新（适合聊天渲染）
+    跨会话获取房间历史消息（独立已读模型）
+    - 需要 reader_id/reader_role 动态计算 is_read
+    - 消息顺序：旧 → 新（适合聊天渲染）
     """
     try:
         # 1. 获取房间
@@ -616,7 +632,7 @@ async def get_room_all_messages(
 
         room_id = chat_room.room_id
 
-        # 2. 关联查询：房间下所有会话的所有消息
+        # 2. 关联查询：该房间下所有会话的消息
         query = db.query(Message).join(
             ConversationSession,
             ConversationSession.session_uuid == Message.session_uuid
@@ -624,46 +640,46 @@ async def get_room_all_messages(
             ConversationSession.room_id == room_id
         )
 
-        # 3. 最近3天
+        # 3. 天数限制
         if days_limit > 0:
             cutoff_date = datetime.now() - timedelta(days=days_limit)
             query = query.filter(Message.create_time >= cutoff_date)
 
         total_count = query.count()
 
-        # 4. 先取最新100条
+        # 4. 取最新 page_size 条（创建时间倒序）
         messages = query.order_by(desc(Message.create_time)).limit(page_size).all()
 
-        # 5. 反转 = 旧消息在前，新消息在后（前端渲染正常）
+        # 5. 反转：旧消息在前，新消息在后
         messages = messages[::-1]
 
-        # ==============================
-        # 🔥 字段 100% 对齐你的前端
-        # ==============================
+        # 6. 动态 is_read
+        is_nurse = reader_role == "nurse"
+
         message_list = []
         for msg in messages:
+            is_read = msg.nurse_read if is_nurse else msg.patient_read
+
             message_list.append({
                 "message_uuid": msg.message_uuid,
                 "session_uuid": msg.session_uuid,
+                "room_id": msg.room_id,                     # 新增
                 "sender_id": msg.sender_id,
                 "sender_type": msg.sender_type.value,
                 "content": msg.content,
                 "chat_mode": msg.chat_mode.value if msg.chat_mode else "AI",
-                "is_read": msg.is_read,
-                "read_time": msg.read_time.isoformat() if msg.read_time else None,
-                "read_by_user_id": msg.read_by_user_id,
-                "read_by_role": msg.read_by_role,
+                "is_read": is_read,                         # 动态计算
                 "create_time": msg.create_time.isoformat() if msg.create_time else None,
                 "message_type": msg.message_type.value if msg.message_type else "text",
                 "file_url": msg.file_url,
             })
 
         return {
-            "session_uuid": "",  # 修复：不能为空，必须传字符串
+            "session_uuid": "",          # 房间维度的请求无特定会话，返回空或房间uuid均可
             "total_count": total_count,
             "page": page,
             "page_size": page_size,
-            "total_pages": 1,
+            "total_pages": 1,            # 可扩展
             "messages": message_list
         }
 
@@ -677,13 +693,15 @@ async def get_room_recently_messages(
     room_uuid: str,
     order: str = Query("asc", description="排序方式: asc-正序, desc-倒序"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(120, ge=1, le=200),  # 默认120条
+    page_size: int = Query(120, ge=1, le=200),
+    reader_id: int = Query(..., description="请求者ID"),
+    reader_role: str = Query(..., description="请求者角色", regex="^(patient|nurse)$"),
     db: Session = Depends(get_db)
 ):
     """
-    ✅ 获取房间最新120条历史消息（跨会话，不限制天数）
-    ✅ 顺序：旧消息在前 → 新消息在后（前端直接渲染）
-    ✅ 完全对齐你的前端字段
+    获取房间最新120条历史消息（跨会话，独立已读）
+    - 需要 reader_id / reader_role 动态计算 is_read
+    - 顺序：旧→新，前端直接渲染
     """
     try:
         # 1. 获取房间
@@ -703,37 +721,43 @@ async def get_room_recently_messages(
 
         total_count = query.count()
 
-        # 3. 取最新120条（倒序）
+        # 3. 取最新 page_size 条（倒序）
         messages = query.order_by(desc(Message.create_time)).limit(page_size).all()
 
-        # 4. 反转 → 旧→新，前端聊天正常渲染
+        # 4. 反转 → 旧→新
         messages = messages[::-1]
 
-        # 5. 字段100%对齐前端
+        # 5. 动态 is_read（按角色）
+        is_nurse = reader_role == "nurse"
+
         message_list = []
         for msg in messages:
-            from_name="ai"
+            # 计算发送者名称
             if msg.sender_type.value == "patient":
-                from_name= get_patient_full_name(db, int(msg.sender_id))
+                from_name = get_patient_full_name(db, int(msg.sender_id))
             elif msg.sender_type.value == "nurse":
-                from_name = get_nurse_full_name(db,int(msg.sender_id))
+                from_name = get_nurse_full_name(db, int(msg.sender_id))
             elif msg.sender_type.value == "ai":
-                from_name="糖尿病AI助手"
+                from_name = "糖尿病AI助手"
             elif msg.sender_type.value == "system":
                 from_name = "系统"
+            else:
+                from_name = "未知"
+
+            # 动态已读
+            is_read = msg.nurse_read if is_nurse else msg.patient_read
+
             message_list.append({
                 "message_uuid": msg.message_uuid,
                 "session_uuid": msg.session_uuid,
+                "room_id": msg.room_id,                # 新增
                 "sender_id": msg.sender_id,
                 "sender_type": msg.sender_type.value,
                 "role": msg.sender_type.value,
-                "from_name":from_name,
+                "from_name": from_name,
                 "content": msg.content,
                 "chat_mode": msg.chat_mode.value if msg.chat_mode else "AI",
-                "is_read": msg.is_read,
-                "read_time": msg.read_time.isoformat() if msg.read_time else None,
-                "read_by_user_id": msg.read_by_user_id,
-                "read_by_role": msg.read_by_role,
+                "is_read": is_read,                    # 动态
                 "create_time": msg.create_time.isoformat() if msg.create_time else None,
                 "message_type": msg.message_type.value if msg.message_type else "text",
                 "file_url": msg.file_url,

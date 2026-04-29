@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from api import auth,register,sms_router,patients,nurses,case,robot,feedback,chat_history
+from api import auth,register,sms_router,patients,nurses,case,robot,feedback,chat_history,CKD_server,AI_server,risk_server
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -17,6 +17,9 @@ api_router.include_router(nurses.router)
 api_router.include_router(robot.router)
 api_router.include_router(feedback.router)
 api_router.include_router(chat_history.router)
+api_router.include_router(CKD_server.router)
+api_router.include_router(AI_server.router)
+api_router.include_router(risk_server.router)
 # api_router.include_router(nurse.router)
 # api_router.include_router(patient.router)
 

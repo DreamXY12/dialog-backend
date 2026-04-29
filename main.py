@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI()
-origins = ["https://dialog.polyusn.com"]
+origins = ["http://localhost:5173","https://dialog.polyusn.com"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,

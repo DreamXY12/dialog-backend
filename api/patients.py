@@ -249,7 +249,7 @@ async def get_patient_profile(
                 "phone": nurse.phone,  # 补充护士手机号
                 "first_name": nurse.first_name,
                 "last_name": nurse.last_name,
-                "full_name": f"{nurse.first_name}{nurse.last_name}"
+                "full_name": f"{nurse.first_name} {nurse.last_name}"
             }
 
     # 6. 构建响应（适配新模型，优化枚举字段返回）
@@ -260,7 +260,7 @@ async def get_patient_profile(
             "phone_area_code":patient.phone_area_code,
             "first_name": patient.first_name,
             "last_name": patient.last_name,
-            "full_name": f"{patient.first_name}{patient.last_name}",
+            "full_name": f"{patient.first_name} {patient.last_name}",
             "date_of_birth": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
             "age": age,
             # 枚举字段转为字符串（避免序列化问题）

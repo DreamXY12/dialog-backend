@@ -961,19 +961,20 @@ class ConversationSession(TimeStampMixIn, Base):
 # ---------------------------
 # 消息表模型
 # ---------------------------
+
 class Message(Base):
-    """消息表（存储所有聊天消息）"""
+    """消息表（按聊天室分组，独立记录患者/护士已读）"""
     __tablename__ = 'message'
     __table_args__ = (
-        Index('idx_session_messages', 'session_uuid', 'create_time'),
-        Index('idx_message_status', 'session_uuid', 'is_read', 'sender_type'),
-        Index('idx_sender_messages', 'sender_type', 'sender_id'),
-        Index('idx_create_time', 'create_time'),
+        Index('idx_room_create', 'room_id', 'create_time'),
+        Index('idx_session', 'session_uuid', 'create_time'),
+        Index('idx_nurse_unread', 'room_id', 'nurse_read', 'sender_type', 'create_time'),
+        Index('idx_patient_unread', 'room_id', 'patient_read', 'sender_type', 'create_time'),
         {
-            'comment': '消息表（存储所有聊天消息）',
+            'comment': '消息表（按聊天室分组，独立记录患者/护士已读）',
             'mysql_engine': 'InnoDB',
             'mysql_charset': 'utf8mb4',
-            'mysql_collate': 'utf8mb4_unicode_ci'
+            'mysql_collate': 'utf8mb4_0900_ai_ci'  # 与建表语句一致
         }
     )
 
@@ -992,7 +993,15 @@ class Message(Base):
         comment='对外消息UUID（安全标识）'
     )
 
-    # 外键
+    # 外键 - 聊天室
+    room_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey('chat_room.room_id', ondelete='CASCADE'),
+        nullable=False,
+        comment='所属聊天室ID（关联chat_room表）'
+    )
+
+    # 外键 - 会话
     session_uuid: Mapped[str] = mapped_column(
         String(36),
         ForeignKey('conversation_session.session_uuid', ondelete='CASCADE'),
@@ -1002,7 +1011,7 @@ class Message(Base):
 
     # 发送者信息
     sender_type: Mapped[SenderType] = mapped_column(
-        Enum(SenderType,values_callable=lambda e: [i.value for i in e]),
+        Enum(SenderType, values_callable=lambda e: [i.value for i in e]),
         nullable=False,
         comment='发送者类型：patient=患者, nurse=护士, ai=AI助手, system=系统'
     )
@@ -1019,7 +1028,7 @@ class Message(Base):
         comment='消息内容（文本内容）'
     )
     message_type: Mapped[MessageType] = mapped_column(
-        Enum(MessageType,values_callable=lambda e: [i.value for i in e]),
+        Enum(MessageType, values_callable=lambda e: [i.value for i in e]),
         nullable=False,
         default=MessageType.TEXT,
         comment='消息类型：text=文本, image=图片, voice=语音, file=文件, system=系统消息'
@@ -1030,38 +1039,29 @@ class Message(Base):
         comment='文件URL（如果是媒体消息）'
     )
 
-    # 已读状态
-    is_read: Mapped[bool] = mapped_column(
+    # 独立已读状态
+    patient_read: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=False,
-        comment='是否已读：0=未读, 1=已读'
+        comment='患者是否已读：0=未读, 1=已读'
     )
-    read_time: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=False),
-        nullable=True,
-        comment='阅读时间'
-    )
-    read_by_user_id: Mapped[Optional[int]] = mapped_column(
-        Integer,
-        nullable=True,
-        comment='阅读者用户ID'
-    )
-    read_by_role: Mapped[Optional[ReaderRole]] = mapped_column(
-        Enum(ReaderRole, values_callable=lambda e: [i.value for i in e]),
-        nullable=True,
-        comment='阅读者角色'
+    nurse_read: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment='护士是否已读：0=未读, 1=已读'
     )
 
     # 聊天模式
     chat_mode: Mapped[ChatMode] = mapped_column(
-        Enum(ChatMode,values_callable=lambda e: [i.value for i in e]),
+        Enum(ChatMode, values_callable=lambda e: [i.value for i in e]),
         nullable=False,
         default=ChatMode.AI,
         comment='发送时的聊天模式：AI=AI模式, assist=协助模式, nurseType=护士接管模式'
     )
 
-    # 时间戳 - 只有create_time，消息不应该被更新
+    # 时间戳
     create_time: Mapped[datetime] = mapped_column(
         DateTime(timezone=False),
         nullable=False,
@@ -1074,6 +1074,8 @@ class Message(Base):
         back_populates="messages",
         lazy="selectin"
     )
+    # 如果需要在 ChatRoom 模型中反向关联，可以保留，否则可省略
+    # room: Mapped["ChatRoom"] = relationship(back_populates="messages", lazy="selectin")
 
     def __repr__(self):
-        return f"<Message(message_id={self.message_id}, session_uuid={self.session_uuid}, sender={self.sender_type})>"
+        return f"<Message(message_id={self.message_id}, room_id={self.room_id}, sender={self.sender_type})>"

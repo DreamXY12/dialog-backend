@@ -2,7 +2,6 @@
 # sql_curd.py
 from typing import Optional, Tuple, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
 from datetime import datetime
 import uuid
 
@@ -31,7 +30,7 @@ def is_nurse_in_working_hours(
     try:
         from datetime import datetime, date, time
 
-        now = datetime.utcnow()
+        now = datetime.now()
         today = now.date()
         current_time = now.time()
 
@@ -100,8 +99,8 @@ def get_or_create_patient_chat_room(
                 patient_id=patient_id,
                 nurse_id=patient.assigned_nurse_id,  # 如果有分配的护士
                 room_status=RoomStatus.ACTIVE,
-                last_activity_time=datetime.utcnow(),
-                create_time=datetime.utcnow()
+                last_activity_time=datetime.now(),
+                create_time=datetime.now()
             )
             db.add(chat_room)
             db.commit()
@@ -266,19 +265,21 @@ def get_active_session_by_room_id(
 
 
 def get_or_create_message(
-        db: Session,
-        session_uuid: str,
-        sender_type: str,
-        sender_id: int,
-        content: str,
-        chat_mode: str = "AI",
-        temp_id: Optional[str] = None
+    db: Session,
+    room_id: int,               # 🔥 新增：聊天室ID
+    session_uuid: str,
+    sender_type: str,
+    sender_id: int,
+    content: str,
+    chat_mode: str = "AI",
+    temp_id: Optional[str] = None
 ) -> Tuple[Optional[Message], bool]:
     """
-    创建消息记录
+    创建消息记录（适配新 Message 模型）
 
     Args:
         db: 数据库会话
+        room_id: 聊天室ID（必填）
         session_uuid: 会话UUID
         sender_type: 发送者类型
         sender_id: 发送者ID
@@ -290,34 +291,34 @@ def get_or_create_message(
         Tuple[Optional[Message], bool]: (消息对象, 是否新创建的)
     """
     try:
-        created = True
-        message = None
 
-        # 如果有temp_id，先尝试查找
+        # 如果有temp_id，尝试查找（加上 room_id 防误匹配）
         if temp_id:
             message = db.query(Message).filter(
+                Message.room_id == room_id,          # 只在本房间查找
                 Message.session_uuid == session_uuid,
-                Message.content.like(f"%{temp_id}%")  # 简单匹配
+                Message.content.like(f"%{temp_id}%")
             ).first()
 
             if message:
                 # 更新现有消息
                 message.content = content
-                message.chat_mode = chat_mode
+                message.chat_mode = chat_mode       # 枚举赋值，可自动转换
                 db.commit()
-                created = False
-                return message, created
+                return message, False
 
         # 创建新消息
         message_uuid = str(uuid.uuid4())
         message = Message(
             message_uuid=message_uuid,
+            room_id=room_id,                        # 必填
             session_uuid=session_uuid,
-            sender_type=sender_type,
+            sender_type=sender_type,                # 枚举值，直接给字符串也可以，SQLAlchemy会自动转
             sender_id=sender_id,
             content=content,
             chat_mode=chat_mode,
-            create_time=datetime.utcnow()
+            # patient_read / nurse_read 默认 False，无需显式设置
+            create_time=datetime.now()
         )
         db.add(message)
 
@@ -332,7 +333,7 @@ def get_or_create_message(
         db.commit()
         db.refresh(message)
 
-        return message, created
+        return message, True
 
     except Exception as e:
         db.rollback()
@@ -347,26 +348,23 @@ def update_message_read_status(
         reader_role: str
 ) -> bool:
     """
-    更新消息已读状态
-
-    Args:
-        db: 数据库会话
-        message_uuid: 消息UUID
-        reader_id: 阅读者ID
-        reader_role: 阅读者角色
-
-    Returns:
-        bool: 是否成功
+    更新消息已读状态（独立已读模型）
+    - 护士阅读 → nurse_read = True
+    - 患者阅读 → patient_read = True
     """
     try:
         message = db.query(Message).filter(Message.message_uuid == message_uuid).first()
         if not message:
             return False
 
-        message.is_read = True
-        message.read_time = datetime.utcnow()
-        message.read_by_user_id = reader_id
-        message.read_by_role = reader_role
+        if reader_role == "nurse":
+            message.nurse_read = True
+            print("护士已看，标记已读")
+        elif reader_role == "patient":
+            message.patient_read = True
+            print("病人已看，标记已读")
+        else:
+            return False
 
         db.commit()
         return True
@@ -384,13 +382,13 @@ def get_unread_messages_count(
         user_role: str
 ) -> int:
     """
-    获取未读消息数量
+    获取未读消息数量（独立已读模型）
 
     Args:
         db: 数据库会话
         room_id: 房间ID
         user_id: 用户ID
-        user_role: 用户角色
+        user_role: 用户角色 (patient / nurse)
 
     Returns:
         int: 未读消息数量
@@ -403,19 +401,23 @@ def get_unread_messages_count(
         if not active_session:
             return 0
 
-        # 根据用户角色确定对方类型
+        # 根据用户角色确定对方类型和已读字段
         if user_role == "patient":
-            target_sender_types = ["nurse", "system"]
+            target_sender_types = ["nurse", "ai", "system"]   # 包含 AI 和系统（可按需去掉 system）
+            read_column = Message.patient_read
         elif user_role == "nurse":
-            target_sender_types = ["patient", "system"]
+            target_sender_types = ["patient", "ai", "system"]
+            read_column = Message.nurse_read
         else:
             return 0
 
         # 计算未读消息数
         count = db.query(func.count(Message.message_id)).filter(
+            Message.room_id == room_id,
             Message.session_uuid == active_session.session_uuid,
-            Message.is_read == False,
-            Message.sender_type.in_(target_sender_types)
+            read_column == False,                              # 尚未被当前角色读取
+            Message.sender_type.in_(target_sender_types),
+            Message.sender_id != user_id                      # 排除自己发送的消息
         ).scalar()
 
         return count or 0
@@ -537,7 +539,6 @@ def get_room_uuid_by_id(
             if not chat_room:
                 print(f"患者{patient_id}未创建聊天室")
                 return None
-            patient_id_test = chat_room.patient_id
             return {
                 "room_id": chat_room.room_id,
                 "room_uuid": chat_room.room_uuid,
