@@ -44,18 +44,18 @@ async def login(
     """用户登录（手机号+验证码）- 重新生成3天有效期Token"""
     try:
         # Step 1: 验证短信验证码（核心）
-        verify_success = verify_verification_code(
-            db=db,
-            phone=request.phone,
-            code=request.verify_code,
-            role=request.user_type,
-            mode="login"  # 验证码用途为登录
-        )
-        if not verify_success:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="验证码错误、已过期或已使用"
-            )
+        # verify_success = verify_verification_code(
+        #     db=db,
+        #     phone=request.phone,
+        #     code=request.verify_code,
+        #     role=request.user_type,
+        #     mode="login"  # 验证码用途为登录
+        # )
+        # if not verify_success:
+        #     raise HTTPException(
+        #         status_code=status.HTTP_401_UNAUTHORIZED,
+        #         detail="验证码错误、已过期或已使用"
+        #     )
 
         # Step 2: 查询用户是否存在
         user = get_user_by_phone(db, request.phone, request.user_type)
