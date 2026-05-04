@@ -142,11 +142,11 @@ def send_verification_code(
         raise HTTPException(status_code=400, detail="用途仅支持login/register")
 
     # Step 2: 沙盒模式校验（仅允许已验证手机号）
-    if SNS_SANDBOX_MODE and not validate_sandbox_phone(phone):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"沙盒模式下仅支持发送至已验证手机号：{SANDBOX_TEST_PHONES}"
-        )
+    # if SNS_SANDBOX_MODE and not validate_sandbox_phone(phone):
+    #     raise HTTPException(
+    #         status_code=status.HTTP_403_FORBIDDEN,
+    #         detail=f"沙盒模式下仅支持发送至已验证手机号：{SANDBOX_TEST_PHONES}"
+    #     )
 
     # Step 3: 防刷校验
     if not check_send_frequency(db, phone, role, mode):
@@ -179,23 +179,23 @@ def send_verification_code(
     db.refresh(new_code)
 
     # Step 6: 发送短信（模拟/真实）
-    if mock:
-        # 模拟发送（无AWS依赖，测试用）
-        return {
-            "success": True,
-            "message": f"【模拟发送】验证码已生成：{code}（有效期{VERIFY_CODE_EXPIRE_HOURS}小时）",
-            "phone": phone,
-            "sandbox_mode": SNS_SANDBOX_MODE,
-            "test_code": code  # 测试用，生产环境删除
-        }
-    else:
-        # 沙盒模式真实发送
-        sns_response = send_sms_via_sns_sandbox(phone, code)
-        print("沙盒模式发送验证码!")
-        return {
-            "success": True,
-            "message": f"验证码{code}已发送至{phone}（沙盒模式），有效期{VERIFY_CODE_EXPIRE_HOURS}小时",
-            "phone": phone,
-            "message_id": sns_response["message_id"],
-            "sandbox_mode": True
-        }
+    # if mock:
+    # 模拟发送（无AWS依赖，测试用）
+    return {
+        "success": True,
+        "message": f"【模拟发送】验证码已生成：{code}（有效期{VERIFY_CODE_EXPIRE_HOURS}小时）",
+        "phone": phone,
+        "sandbox_mode": SNS_SANDBOX_MODE,
+        "test_code": code  # 测试用，生产环境删除
+    }
+    # else:
+    #     # 沙盒模式真实发送
+    #     sns_response = send_sms_via_sns_sandbox(phone, code)
+    #     print("沙盒模式发送验证码!")
+    #     return {
+    #         "success": True,
+    #         "message": f"验证码{code}已发送至{phone}（沙盒模式），有效期{VERIFY_CODE_EXPIRE_HOURS}小时",
+    #         "phone": phone,
+    #         "message_id": sns_response["message_id"],
+    #         "sandbox_mode": True
+    #     }

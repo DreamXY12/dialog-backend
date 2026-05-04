@@ -4,6 +4,7 @@ from typing import Optional, Tuple, Dict, Any
 from sqlalchemy.orm import Session
 from datetime import datetime
 import uuid
+from sqlalchemy.exc import SQLAlchemyError
 
 from sql.people_models import (
     ChatRoom, ConversationSession, Message,
@@ -99,6 +100,13 @@ def get_or_create_patient_chat_room(
                 patient_id=patient_id,
                 nurse_id=patient.assigned_nurse_id,  # 如果有分配的护士
                 room_status=RoomStatus.ACTIVE,
+                current_chat_mode="AI",  # 默认聊天模式：AI
+                is_sos_active=False,  # SOS默认关闭
+                is_help_active=False, # 创建时默认没有人工求助
+                sos_create_time=None,  # SOS时间为空
+                help_create_time=None, # 普通人工请求
+                last_sync_mode_time=datetime.now(),  # 模式同步时间
+                nurse_is_read=False,  # 护士未读
                 last_activity_time=datetime.now(),
                 create_time=datetime.now()
             )
@@ -241,7 +249,7 @@ def get_active_session_by_room_id(
                 session_number=session_number,
                 session_type=session_type,
                 session_status=SessionStatus.ACTIVE,
-                start_time=datetime.utcnow(),
+                start_time=datetime.now(),
                 # 如果有护士班次，可以关联
                 nurse_shift_id=None  # 这里可以根据业务逻辑设置
             )
@@ -489,6 +497,13 @@ def get_chat_room_info(
             "nurse_id": chat_room.nurse_id,
             "nurse_name": f"{nurse.first_name} {nurse.last_name}" if nurse else None,
             "room_status": chat_room.room_status,
+            "current_chat_mode":chat_room.current_chat_mode,
+            "is_sos_active":chat_room.is_sos_active,
+            "is_help_active":chat_room.is_help_active,
+            "sos_create_time":chat_room.sos_create_time,
+            "help_create_time":chat_room.help_create_time,
+            "last_sync_mode_time":chat_room.last_sync_mode_time,
+            "nurse_is_read":chat_room.nurse_is_read,
             "last_activity_time": chat_room.last_activity_time,
             "current_session_uuid": chat_room.current_session_uuid,
             "active_session": {
@@ -566,3 +581,119 @@ def get_room_uuid_by_id(
     except Exception as e:
         print(f"通过ID获取room_uuid失败: {str(e)}")
         return None
+
+def update_chat_room_sos_status(
+    db: Session,
+    room_uuid: str,
+    is_sos_active: bool
+) -> Tuple[Optional[ChatRoom], bool]:
+    """
+    更新聊天室 SOS 求助状态
+    - 开启时自动记录 sos_create_time
+    - 关闭时清空 sos_create_time
+
+    Args:
+        db: 数据库会话
+        room_uuid: 聊天室UUID（对外安全ID）
+        is_sos_active: True=开启SOS / False=关闭SOS
+
+    Returns:
+        Tuple[Optional[ChatRoom], bool]: (更新后的聊天室, 是否成功)
+    """
+    try:
+        chat_room = db.query(ChatRoom).filter(ChatRoom.room_uuid == room_uuid).first()
+        if not chat_room:
+            print(f"[SOS更新] 聊天室不存在: {room_uuid}")
+            return None, False
+
+        # 更新字段
+        chat_room.is_sos_active = is_sos_active
+
+        # 开启SOS时记录发起时间，关闭时清空
+        if is_sos_active:
+            chat_room.sos_create_time = datetime.now()
+        else:
+            chat_room.sos_create_time = None
+
+        db.commit()
+        db.refresh(chat_room)
+        print(f"[SOS更新] 成功: room_uuid={room_uuid}, SOS={is_sos_active}")
+        return chat_room, True
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        print(f"[SOS更新] 失败: {str(e)}")
+        return None, False
+
+def update_chat_room_mode(
+    db: Session,
+    room_uuid: str,
+    chat_mode: str
+) -> Tuple[Optional[ChatRoom], bool]:
+    """
+    更新当前聊天模式
+    同时更新 last_sync_mode_time（最后模式同步时间）
+
+    合法模式：AI / assist / nurseType
+    """
+    # 合法模式校验
+    valid_modes = {"AI", "assist", "nurseType"}
+
+    try:
+        if chat_mode not in valid_modes:
+            print(f"[模式更新] 不支持的聊天模式: {chat_mode}")
+            return None, False
+
+        chat_room = db.query(ChatRoom).filter(ChatRoom.room_uuid == room_uuid).first()
+        if not chat_room:
+            print(f"[模式更新] 聊天室不存在: {room_uuid}")
+            return None, False
+
+        # 更新模式 + 同步时间
+        chat_room.current_chat_mode = chat_mode
+        chat_room.last_sync_mode_time = datetime.now()
+
+        db.commit()
+        db.refresh(chat_room)
+        print(f"[模式更新] 成功: room_uuid={room_uuid}, mode={chat_mode}")
+        return chat_room, True
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        print(f"[模式更新] 失败: {str(e)}")
+        return None, False
+
+def update_chat_room_help_status(
+    db: Session,
+    room_uuid: str,
+    is_help_active: bool
+) -> Tuple[Optional[ChatRoom], bool]:
+    """
+    更新聊天室 求助状态
+    - 开启时自动记录 help_create_time
+    - 关闭时清空 help_create_time
+    """
+    try:
+        chat_room = db.query(ChatRoom).filter(ChatRoom.room_uuid == room_uuid).first()
+        if not chat_room:
+            print(f"[求助更新] 聊天室不存在: {room_uuid}")
+            return None, False
+
+        # 更新求助状态
+        chat_room.is_help_active = is_help_active
+
+        # 开启时写入时间，关闭时清空
+        if is_help_active:
+            chat_room.help_create_time = datetime.now()
+        else:
+            chat_room.help_create_time = None
+
+        db.commit()
+        db.refresh(chat_room)
+        print(f"[求助更新] 成功: room_uuid={room_uuid}, 求助状态={is_help_active}")
+        return chat_room, True
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        print(f"[求助更新] 失败: {str(e)}")
+        return None, False

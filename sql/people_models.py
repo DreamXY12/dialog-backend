@@ -794,6 +794,50 @@ class ChatRoom(TimeStampMixIn, Base):
         comment='聊天室状态：active=活跃中, waiting_nurse=等待护士, nurse_assigned=护士已分配, completed=已完成'
     )
 
+    current_chat_mode: Mapped[str] = mapped_column(
+        String(20),
+        default="AI",
+        nullable=True,
+        comment='当前聊天模式：AI / assist / nurseType'
+    )
+    is_sos_active: Mapped[bool] = mapped_column(
+        Integer,  # MySQL tinyint(1) 对应 bool
+        default=0,
+        nullable=True,
+        comment='是否有SOS求助'
+    )
+
+    is_help_active: Mapped[bool] = mapped_column(
+        Integer,  # MySQL tinyint(1) 对应 bool
+        default=0,
+        nullable=True,
+        comment='是否有人工求助'
+    )
+
+    sos_create_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment='SOS发起时间'
+    )
+
+    help_create_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment='普通人工服务发起时间'
+    )
+
+    last_sync_mode_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment='最后一次模式同步时间'
+    )
+    nurse_is_read: Mapped[bool] = mapped_column(
+        Integer,
+        default=0,
+        nullable=True,
+        comment='护士是否已读'
+    )
+
     # 时间相关字段
     last_activity_time: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=False),

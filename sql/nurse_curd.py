@@ -2,7 +2,7 @@
 import datetime
 
 from sqlalchemy.orm import Session
-from sql.people_models import Nurse, Patient,NurseWorkShift
+from sql.people_models import Nurse, Patient,NurseWorkShift,ChatRoom
 from typing import Optional,Dict, Any,List
 from sql.chat_histoty_curd import get_room_uuid_by_id
 from sqlalchemy.exc import SQLAlchemyError  # 导入异常类
@@ -196,6 +196,49 @@ def assign_patient_to_nurse_by_phone(
     finally:
         # 🔴 移除不必要的db.close()（会话应由调用方管理）
         pass
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+# 导入你的模型和枚举
+# from 你的模块 import ChatRoom, RoomStatus
+
+def update_chat_room_nurse(
+    db: Session,
+    patient_id: int,
+    new_nurse_id: Optional[int]
+) -> Optional[ChatRoom]:
+    """
+    根据 patient_id 更新聊天室的护士 ID
+    逻辑：
+    1. 先查询该患者是否存在对应的聊天室记录
+    2. 存在 → 更新 nurse_id + 自动更新最后活动时间
+    3. 不存在 → 不操作，返回 None
+
+    :param db: 数据库会话
+    :param patient_id: 患者ID
+    :param new_nurse_id: 要设置的新护士ID（可以传 None）
+    :return: 更新后的 ChatRoom 对象 / None
+    """
+    # ====================== 1. 按 patient_id 查询聊天室 ======================
+    query = select(ChatRoom).where(ChatRoom.patient_id == patient_id)
+    result = db.execute(query)
+    chat_room = result.scalar_one_or_none()
+
+    # 没找到记录 → 直接返回
+    if not chat_room:
+        return None
+
+    # ====================== 2. 找到记录 → 执行更新 ======================
+    chat_room.nurse_id = new_nurse_id
+    chat_room.last_activity_time = datetime.datetime.now()  # 建议同步更新活跃时间
+
+    # 提交事务
+    db.commit()
+    # 刷新对象（确保拿到最新数据）
+    db.refresh(chat_room)
+
+    return chat_room
 
 # 其他方法同步修改：
 # unassign_patient_from_specific_nurse_by_login_code → unassign_patient_from_specific_nurse_by_phone

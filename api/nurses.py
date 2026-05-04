@@ -6,7 +6,7 @@ import re
 from sqlalchemy.orm import Session
 from sql.start import get_db
 from sql.nurse_curd import  get_patients_without_nurse_paginated_by_phone,assign_patient_to_nurse_by_phone
-from sql.nurse_curd import unassign_patient_from_specific_nurse_by_phone,get_patients_by_nurse_paginated
+from sql.nurse_curd import unassign_patient_from_specific_nurse_by_phone,get_patients_by_nurse_paginated,update_chat_room_nurse
 from sql.patient_curd import get_patient_by_phone
 from sql.nurse_curd import get_nurse_today_work_time_curd,update_nurse_today_work_time
 from datetime import datetime
@@ -90,6 +90,8 @@ async def assign_patient_to_nurse(
             detail=f"分配失败，患者手机号 {patient_phone} 或护士手机号 {nurse_phone} 不存在，或患者已被分配"
         )
 
+    # 更新房间信息，如果有的话
+    update_chat_room_nurse(db,patient_id=patient.patient_id,new_nurse_id=patient.assigned_nurse_id)
     return {
         "success": True,
         "message": f"成功将患者 {patient_phone} 分配给护士 {nurse_phone}",
@@ -205,6 +207,8 @@ async def batch_assign_patients_to_nurse(
             patient = assign_patient_to_nurse_by_phone(db, patient_phone, nurse_phone)
 
             if patient:
+                update_chat_room_nurse(db,patient_id=patient.patient_id,new_nurse_id=patient.assigned_nurse_id)
+
                 results["success"].append({
                     "patient_id": patient.patient_id,
                     "phone": patient.phone,  # 替换 login_code

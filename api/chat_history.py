@@ -21,7 +21,10 @@ from schema.chat_schema import (
 from sql.chat_histoty_curd import (
     get_chat_room_by_uuid,
     get_active_session_by_room_id,
-    get_or_create_patient_chat_room
+    get_or_create_patient_chat_room,
+    update_chat_room_mode,
+    update_chat_room_sos_status,
+update_chat_room_help_status
 )
 
 router = APIRouter(tags=["chat-history"])
@@ -300,6 +303,85 @@ async def get_unread_message_count(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取未读数失败: {str(e)}")
 
+@router.get("/rooms/{room_uuid}/chat_mode")
+def get_current_chat_mode(
+    room_uuid: str,
+    db: Session = Depends(get_db)):
+
+    chat_room = db.query(ChatRoom).filter(ChatRoom.room_uuid == room_uuid).first()
+    if not chat_room:
+        raise HTTPException(status_code=404, detail="網絡錯誤，無法獲取當前聊天狀態")
+
+    return {
+        "room_uuid": chat_room.room_uuid,
+        "current_chat_mode": chat_room.current_chat_mode,
+        "last_sync_time": chat_room.last_sync_mode_time
+    }
+
+
+@router.get("/rooms/{room_uuid}/update_chat_mode")
+def update_chat_mode(
+        room_uuid: str,
+        chat_mode: str,  # 查询参数：?mode=assist
+        db: Session = Depends(get_db)
+):
+    chat_room, ok = update_chat_room_mode(db, room_uuid, chat_mode)
+    if not ok:
+        raise HTTPException(status_code=400, detail="網絡錯誤，更新聊天狀態失敗")
+
+    return {"status": "ok", "current_chat_mode": chat_room.current_chat_mode}
+
+@router.get("/rooms/{room_uuid}/update_sos")
+def api_update_room_sos(
+    room_uuid: str,
+    active: bool,
+    db: Session = Depends(get_db)
+):
+    """
+    更新聊天室SOS求助状态
+    :param room_uuid: 聊天室UUID
+    :param active: true=开启SOS  false=关闭SOS
+    :param db: 数据库会话依赖
+    """
+    chat_room, success = update_chat_room_sos_status(db, room_uuid, active)
+    if not success:
+        raise HTTPException(status_code=400, detail="更新SOS狀態失敗")
+
+    return {
+        "code": 200,
+        "msg": "操作成功",
+        "data": {
+            "room_uuid": chat_room.room_uuid,
+            "is_sos_active": chat_room.is_sos_active,
+            "sos_create_time": chat_room.sos_create_time
+        }
+    }
+
+@router.get("/rooms/{room_uuid}/update-help")
+def api_update_room_help(
+    room_uuid: str,
+    active: bool,
+    db: Session = Depends(get_db)
+):
+    """
+    更新聊天室人工求助状态
+    :param room_uuid: 聊天室UUID
+    :param active: true=开启求助  false=关闭求助
+    :param db: 数据库会话依赖
+    """
+    chat_room, success = update_chat_room_help_status(db, room_uuid, active)
+    if not success:
+        raise HTTPException(status_code=400, detail="更新求助状态失败，聊天室不存在或参数错误")
+
+    return {
+        "code": 200,
+        "msg": "操作成功",
+        "data": {
+            "room_uuid": chat_room.room_uuid,
+            "is_help_active": chat_room.is_help_active,
+            "help_create_time": chat_room.help_create_time
+        }
+    }
 
 @router.get("/rooms/{room_id}/sessions")
 async def get_room_sessions(
