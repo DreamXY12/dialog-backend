@@ -120,7 +120,7 @@ async def ckd_predict(req: CKDPredictRequest):
 
         ckd_result = response.json()
         # 如果沒有錯誤就保存到數據庫
-        create_ckd_prediction(db=get_db(),)
+        # create_ckd_prediction(db=get_db(),)
 
         # 生成图片预签名地址
         bucket = ckd_result.get("bucket")
