@@ -98,7 +98,7 @@ async def ai_public_chat(message: str, session_id: str = None, room_uuid: str = 
         payload["session_id"] = session_id
 
     try:
-        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+        async with httpx.AsyncClient(verify=False, timeout=100.0) as client:
             res = await client.post(f"{AI_BASE_URL}/api/public/chat", json=payload)
         return res.status_code, res.json()
     except Exception as e:
@@ -506,6 +506,18 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
             room_uuid=room_uuid
         )
         if status != 200:
+            msg_id = str(uuid.uuid4())
+            ai_msg = {
+                "message_uuid": msg_id,
+                "room_uuid": room_uuid,
+                "user_id": "ai",
+                "role": "ai",
+                "content":"AI服務出現異常，抱歉，請稍後重試",
+                "streaming": False,
+                "chatMode": "AI",
+                "state": "stopped"
+            }
+            await sio.emit("receive_message", ai_msg, room=room_uuid)
             return
 
         # ===================== 读取 AI 返回核心字段 =====================
@@ -528,8 +540,8 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
         if ai_state == "stopped":
             reply_text = ai_text if ai_text else "AI 目前無法繼續回答，建議您轉由護士人工協助。您可以直接輸入'轉人工'，或者點擊下方緊急聯係護士按鈕。"
 
-        # elif ai_state == "needs_input":
-        #     reply_text = ai_text if ai_text else "請您補充相關資料，我才能繼續為您評估。"
+        elif ai_state == "needs_input":
+             reply_text = ai_text if ai_text else "請您補充相關資料，我才能繼續為您評估。"
 
         elif ai_state == "urgent":
             reply_text = ai_text if ai_text else "偵測到健康風險，建議您盡快諮詢醫護人員。您可以直接輸入'轉人工'，或者點擊下方緊急聯係護士按鈕。"
@@ -537,11 +549,9 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
         elif ai_state == "in_progress":
             reply_text = ai_text if ai_text else "處理中，請稍後..."
 
-        # elif ai_state == "completed":
-        #     reply_text = ai_text if ai_text else "本次諮詢已完成。"
+        elif ai_state == "completed":
+            reply_text = ai_text if ai_text else "本次諮詢已完成。"
 
-        else:
-            reply_text = ai_text if ai_text else "感謝您的提問，我已記錄您的問題。"
 
         # ---------------------------------------------------------------------
         # 3. 获取会话
