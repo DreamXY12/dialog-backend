@@ -528,8 +528,8 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
         if ai_state == "stopped":
             reply_text = ai_text if ai_text else "AI 目前無法繼續回答，建議您轉由護士人工協助。您可以直接輸入'轉人工'，或者點擊下方緊急聯係護士按鈕。"
 
-        elif ai_state == "needs_input":
-            reply_text = ai_text if ai_text else "請您補充相關資料，我才能繼續為您評估。"
+        # elif ai_state == "needs_input":
+        #     reply_text = ai_text if ai_text else "請您補充相關資料，我才能繼續為您評估。"
 
         elif ai_state == "urgent":
             reply_text = ai_text if ai_text else "偵測到健康風險，建議您盡快諮詢醫護人員。您可以直接輸入'轉人工'，或者點擊下方緊急聯係護士按鈕。"
@@ -537,8 +537,8 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
         elif ai_state == "in_progress":
             reply_text = ai_text if ai_text else "處理中，請稍後..."
 
-        elif ai_state == "completed":
-            reply_text = ai_text if ai_text else "本次諮詢已完成。"
+        # elif ai_state == "completed":
+        #     reply_text = ai_text if ai_text else "本次諮詢已完成。"
 
         else:
             reply_text = ai_text if ai_text else "感謝您的提問，我已記錄您的問題。"

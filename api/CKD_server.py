@@ -5,6 +5,40 @@ from fastapi import APIRouter
 from fastapi import HTTPException
 import requests  # 用来发 POST 请求第三方后端
 import boto3
+from pydantic import BaseModel
+from sql.start import get_db
+from sql.ckd_curd import (
+    create_ckd_prediction,
+    get_latest_ckd_with_file
+)
+
+# ==========================
+# 1. 定义和前端完全对齐的请求体模型
+# ==========================
+class CKDPredictRequest(BaseModel):
+    model_type: str
+    horizon: str
+    age: int
+    sex: str
+    bmi: float
+    hba1c: float
+    tc: float
+    ldl: float
+    hdl: float
+    k: float
+    creat: float
+    use_insulin: bool
+    stroke: bool
+    smoke: bool
+    anti_ht: bool
+    angio: bool
+    other_dm: bool
+    whr: float
+    fpg: float
+    sbp: float
+    dbp: float
+    foot_prob: bool
+    eye_prob: bool
 
 dialog_ai_url="https://agent.dialog.polyusn.com"
 
@@ -30,7 +64,7 @@ router = APIRouter(tags=["ckd_predict"])
 # 你内部调用：第三方后端 /ai/ckd_predict
 # ==========================
 @router.post("/ai/ckd_predict")
-async def ckd_predict():
+async def ckd_predict(req: CKDPredictRequest):
     """
     前端 → 你的FastAPI → 第三方后端
     自动处理错误 + 自动生成图片签名URL
@@ -65,20 +99,18 @@ async def ckd_predict():
     third_party_url = dialog_ai_url + "/ai/ckd_predict"
 
     try:
-        # ==========================================
-        # 你向后端发送 POST 请求（核心代码）
-        # ==========================================
+        # 直接把前端传入的参数转 json 转发，不再写死模拟数据
+        payload = req.model_dump(exclude_none=True)
+
         response = requests.post(
             url=third_party_url,
-            json=simulation_data,  # 前端传什么，你就转发什么
+            json=payload,
             headers={"Content-Type": "application/json"},
-            timeout=20,  # 超时20秒
-            verify=False  # 测试环境忽略证书错误（正式环境可删掉）
+            timeout=20,
+            verify=False
         )
 
-        # ==========================================
-        # 错误处理：第三方接口返回非200
-        # ==========================================
+        # 状态码错误处理
         if response.status_code == 400:
             raise HTTPException(status_code=400, detail="请求参数错误")
         if response.status_code == 404:
@@ -86,23 +118,18 @@ async def ckd_predict():
         if response.status_code >= 500:
             raise HTTPException(status_code=503, detail="第三方服务暂时不可用")
 
-        # 获取第三方返回结果
         ckd_result = response.json()
+        # 如果沒有錯誤就保存到數據庫
+        create_ckd_prediction(db=get_db(),)
 
-        # ==========================================
-        # 自动生成图片可访问URL（关键！）
-        # ==========================================
+        # 生成图片预签名地址
         bucket = ckd_result.get("bucket")
         key = ckd_result.get("key")
         if bucket and key:
             ckd_result["image_url"] = generate_s3_presigned_url(bucket, key)
 
-        # 返回给前端
         return ckd_result
 
-    # ==========================================
-    # 全局网络错误处理（全部覆盖）
-    # ==========================================
     except requests.exceptions.Timeout:
         raise HTTPException(status_code=504, detail="请求第三方接口超时")
     except requests.exceptions.ConnectionError:
