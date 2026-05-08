@@ -12,6 +12,11 @@ from sql.models import User, Query, Session, Invitation
 from sql.people_models import Case
 from sqlalchemy.orm import Session as Connection
 from datetime import datetime
+from sqlalchemy import and_, update, insert, Table
+from sqlalchemy import (
+    Integer, String, Date, DateTime, DECIMAL,
+    Index, ForeignKey, Enum, func,Float
+)
 
 '''clean work space'''
 def init_models():
@@ -92,6 +97,77 @@ def create_case(db: Connection, case: Case):
         db.rollback()
         raise e
 
+
+
+
+def upsert_patient_score(
+    conn: Connection,
+    user_id: int,
+    hba1c: float | None,
+    fasting_glucose: float | None,
+    hdl_cholesterol: float | None,
+    triglyceride: float | None,
+    time_spec: int,
+    test_date: Date,
+    new_score: float,
+    analysis_result: str | None = None
+):
+    # ======================
+    # 核心：用 Table 列构建条件（无类型报错）
+    # ======================
+    # 直接获取 Table 对象（从你的 ORM 模型）
+    case_table: Table = Case.__table__
+    condition = and_(
+        case_table.c.user_id == user_id,
+        case_table.c.hba1c == hba1c,
+        case_table.c.fasting_glucose == fasting_glucose,
+        case_table.c.hdl_cholesterol == hdl_cholesterol,
+        case_table.c.triglyceride == triglyceride
+    )
+
+    # 1. 查询是否存在
+    existing_row = conn.execute(
+        case_table.select().where(condition)
+    ).fetchone()
+
+    if existing_row:
+        # 2. 存在 → 只更新 score
+        update_stmt = (
+            update(case_table)
+            .where(condition)
+            .values(
+                score=new_score,
+                analysis_result=analysis_result
+            )
+        )
+        conn.execute(update_stmt)
+        conn.commit()
+        return {
+            "action": "updated",
+            "case_id": existing_row.case_id
+        }
+
+    else:
+        # 3. 不存在 → 插入新记录
+        insert_stmt = insert(case_table).values(
+            user_id=user_id,
+            hba1c=hba1c,
+            fasting_glucose=fasting_glucose,
+            hdl_cholesterol=hdl_cholesterol,
+            triglyceride=triglyceride,
+            time_spec=time_spec,
+            test_date=test_date,
+            score=new_score,
+            analysis_result=analysis_result
+        )
+        result = conn.execute(insert_stmt)
+        conn.commit()
+
+        return {
+            "action": "created",
+            "case_id": result.inserted_primary_key[0]
+        }
+
 def get_cases_by_user(db: Connection, user):
     # 根据用户类型获取用户ID
     if hasattr(user, 'user_id'):
@@ -114,8 +190,6 @@ def get_cases_by_user(db: Connection, user):
     result = db.execute(stmt)
 
     return result.all()
-
-
 
 def get_case_by_id(db: Connection, case_id: int):
     

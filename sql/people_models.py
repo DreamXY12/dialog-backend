@@ -992,11 +992,11 @@ class ConversationSession(TimeStampMixIn, Base):
         back_populates="sessions",
         lazy="selectin"
     )
-    messages: Mapped[List["Message"]] = relationship(
-        back_populates="session",
-        cascade="all, delete-orphan",
-        lazy="selectin"
-    )
+    # messages: Mapped[List["Message"]] = relationship(
+    #     back_populates="session",
+    #     cascade="all, delete-orphan",
+    #     lazy="selectin"
+    # )
 
     def __repr__(self):
         return f"<ConversationSession(session_id={self.session_id}, room_id={self.room_id}, status={self.session_status})>"
@@ -1048,7 +1048,6 @@ class Message(Base):
     # 外键 - 会话
     session_uuid: Mapped[str] = mapped_column(
         String(36),
-        ForeignKey('conversation_session.session_uuid', ondelete='CASCADE'),
         nullable=False,
         comment='所属会话UUID（外键关联conversation_session表）'
     )
@@ -1114,10 +1113,10 @@ class Message(Base):
     )
 
     # 关系
-    session: Mapped["ConversationSession"] = relationship(
-        back_populates="messages",
-        lazy="selectin"
-    )
+    # session: Mapped["ConversationSession"] = relationship(
+    #     back_populates="messages",
+    #     lazy="selectin"
+    # )
     # 如果需要在 ChatRoom 模型中反向关联，可以保留，否则可省略
     # room: Mapped["ChatRoom"] = relationship(back_populates="messages", lazy="selectin")
 

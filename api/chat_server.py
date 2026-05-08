@@ -22,6 +22,7 @@ from sql.nurse_curd import get_patient_ids_by_nurse
 import httpx
 import urllib3
 from sqlalchemy.exc import SQLAlchemyError, PendingRollbackError
+from sql.ai_curd import delete_patient_current_session_and_clear,update_chat_room_current_session_uuid_by_patient
 
 import logging
 # 配置日志（非常重要）
@@ -103,13 +104,13 @@ async def ai_public_chat(message: str, session_id: str = None, room_uuid: str = 
         return res.status_code, res.json()
     except Exception as e:
         print(f"AI 请求失败: {str(e)}")
-        await sio.emit("receive_message", {
-            "room_uuid": room_uuid,
-            "user_id": "ai",
-            "role": "ai",
-            "content": "AI 服务异常，请稍后重试",
-            "streaming": False
-        }, room=room_uuid)
+        # await sio.emit("receive_message", {
+        #     "room_uuid": room_uuid,
+        #     "user_id": "ai",
+        #     "role": "ai",
+        #     "content": "AI 服务异常，请稍后重试",
+        #     "streaming": False
+        # }, room=room_uuid)
         return -1, {}
 
 # =========================
@@ -394,16 +395,16 @@ async def send_message(sid, data):
         room = await get_room(room_uuid)
         current_ai_session_id = room.get("ai_session_id")
 
-        if not active_session:
-            status, ai_data = await ai_public_chat(message=data["content"], room_uuid=room_uuid)
-            if status == 200 and "session_id" in ai_data:
-                current_ai_session_id = ai_data["session_id"]
-                room["ai_session_id"] = current_ai_session_id
-                await save_room(room_uuid, room)
-            active_session = await create_new_session(
-                room_id=str(chat_room.room_id), user_id=str(sender_id), role=role, db=db,
-                ai_session_id=current_ai_session_id
-            )
+        # if not active_session and role=="patient":
+        #     status, ai_data = await ai_public_chat(message=data["content"], room_uuid=room_uuid)
+        #     if status == 200 and "session_id" in ai_data:
+        #         current_ai_session_id = ai_data["session_id"]
+        #         room["ai_session_id"] = current_ai_session_id
+        #         await save_room(room_uuid, room)
+        #     active_session = await create_new_session(
+        #         room_id=str(chat_room.room_id), user_id=str(sender_id), role=role, db=db,
+        #         ai_session_id=current_ai_session_id
+        #     )
 
         message, _ = get_or_create_message(
             db=db,
@@ -512,7 +513,7 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
                 "room_uuid": room_uuid,
                 "user_id": "ai",
                 "role": "ai",
-                "content":"AI服務出現異常，抱歉，請稍後重試",
+                "content":"The AI service is experiencing an issue. We apologize, please try again later.",
                 "streaming": False,
                 "chatMode": "AI",
                 "state": "stopped"
@@ -520,17 +521,13 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
             await sio.emit("receive_message", ai_msg, room=room_uuid)
             return
 
+
+
         # ===================== 读取 AI 返回核心字段 =====================
         ai_state = ai_data.get("state", "").strip()
         ai_text = ai_data.get("message", "").strip()
         new_session_id = ai_data.get("session_id")
         # =================================================================
-
-        # 更新 session_id
-        if room.get("ai_session_id") != new_session_id:
-            if new_session_id:
-                room["ai_session_id"] = new_session_id
-                await save_room(room_uuid, room)
 
         # ---------------------------------------------------------------------
         # ✅ 关键：所有 state 都必须返回消息给前端
@@ -538,10 +535,56 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
         reply_text = ""
 
         if ai_state == "stopped":
-            reply_text = ai_text if ai_text else "AI 目前無法繼續回答，建議您轉由護士人工協助。您可以直接輸入'轉人工'，或者點擊下方緊急聯係護士按鈕。"
+            # 如果為stopped 則後台新建一個會話
+            status, ai_data = await ai_public_chat(
+                message=user_msg["content"],
+                session_id="",
+                room_uuid=room_uuid
+            )
+            if status != 200:
+                msg_id = str(uuid.uuid4())
+                ai_msg = {
+                    "message_uuid": msg_id,
+                    "room_uuid": room_uuid,
+                    "user_id": "ai",
+                    "role": "ai",
+                    "content": "AI 服務出現異常，抱歉，請稍後重試",
+                    "streaming": False,
+                    "chatMode": "AI",
+                    "state": "stopped"
+                }
+                await sio.emit("receive_message", ai_msg, room=room_uuid)
+                return
+            elif status == 200:
+                # 如果返回成功了，則直接先清空所有
+                # 先獲取房間內的病人的id
+                patient_id = room["patient_id"]
+                is_ok = delete_patient_current_session_and_clear(db=db, patient_id=int(patient_id))
+                if not is_ok:
+                    msg_id = str(uuid.uuid4())
+                    ai_msg = {
+                        "message_uuid": msg_id,
+                        "room_uuid": room_uuid,
+                        "user_id": "ai",
+                        "role": "ai",
+                        "content": "AI 服務出現異常，抱歉，請稍後重試",
+                        "streaming": False,
+                        "chatMode": "AI",
+                        "state": "stopped"
+                    }
+                    await sio.emit("receive_message", ai_msg, room=room_uuid)
+                    return
+                else:
+                    new_session_id = ai_data.get("session_id")
+                    active_session = await create_new_session(
+                    room_id=str(chat_room.room_id), user_id=str(patient_id), role="patient", db=db,
+                    ai_session_id=new_session_id)
+                    update_chat_room_current_session_uuid_by_patient(db, patient_id, new_session_id)
+                    reply_text = ai_data.get("message", "").strip()
+
 
         elif ai_state == "needs_input":
-             reply_text = ai_text if ai_text else "請您補充相關資料，我才能繼續為您評估。"
+            reply_text = ai_text if ai_text else "請您補充相關資料，我才能繼續為您評估。"
 
         elif ai_state == "urgent":
             reply_text = ai_text if ai_text else "偵測到健康風險，建議您盡快諮詢醫護人員。您可以直接輸入'轉人工'，或者點擊下方緊急聯係護士按鈕。"
@@ -552,6 +595,11 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
         elif ai_state == "completed":
             reply_text = ai_text if ai_text else "本次諮詢已完成。"
 
+        # 更新 session_id
+        if room.get("ai_session_id") != new_session_id:
+            if new_session_id:
+                room["ai_session_id"] = new_session_id
+                await save_room(room_uuid, room)
 
         # ---------------------------------------------------------------------
         # 3. 获取会话
