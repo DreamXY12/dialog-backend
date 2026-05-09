@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func,asc
 from sql.nurse_curd import get_nurse_full_name
 from sql.patient_curd import get_patient_full_name
+from sqlalchemy import select, delete
 
 # 假设你已经有了这些导入
 from sql.start import get_db
@@ -858,3 +859,44 @@ async def get_room_recently_messages(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取房间消息失败: {str(e)}")
+
+
+@router.post("/clear-chat")
+def clear_chat_by_patient_id(
+        patient_id: int,
+        db: Session = Depends(get_db)
+):
+    try:
+        # 1. 找到患者的聊天室
+        chat_room = db.execute(
+            select(ChatRoom).where(ChatRoom.patient_id == patient_id)
+        ).scalar_one_or_none()
+
+        if not chat_room:
+            return {"code": 200, "message": "无对话可清空"}
+
+        # 获取当前会话 UUID
+        session_uuid = chat_room.current_session_uuid
+
+        # ================= 核心逻辑 =================
+        # 1. 删除对应的会话记录（你要求的）
+        if session_uuid:
+            db.execute(
+                delete(ConversationSession)
+                .where(ConversationSession.session_uuid == session_uuid)
+            )
+
+        # 2. 置空房间字段（你要求的）
+        chat_room.current_session_uuid = None
+        chat_room.last_activity_time = None
+
+        # 可选：重置为AI模式（更合理）
+        chat_room.current_chat_mode = "AI"
+        # ============================================
+
+        db.commit()
+        return {"code": 200, "message": "已清空对话"}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"清空失败：{str(e)}")

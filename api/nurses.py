@@ -250,22 +250,25 @@ class ChatMessageSchema:
 
 
 @router.get("/patient/{patient_phone}/messages", summary="查询患者所有对话记录（按天分组用）")
-async def get_patient_chat_messages(
+def get_patient_chat_messages(
         patient_phone: str,
         start_date: Optional[str] = Query(None, description="开始日期（格式：YYYY-MM-DD）"),
         end_date: Optional[str] = Query(None, description="结束日期（格式：YYYY-MM-DD）"),
         db: Session = Depends(get_db)
 ):
-    # 1. 校验患者是否存在
+    # 1. 校验患者
     patient = get_patient_by_phone(db, patient_phone)
     if not patient:
         raise HTTPException(status_code=404, detail="患者不存在，请核对手机号")
 
-    # ===================== 这里是修复后的正确联表 =====================
-    query = db.query(Message)\
-        .join(ConversationSession, Message.session_uuid == ConversationSession.session_uuid)\
-        .join(ChatRoom, ConversationSession.room_id == ChatRoom.room_id)\
-        .filter(ChatRoom.patient_id == patient.patient_id)
+    # 2. 找到患者的房间（只拿 room_id）
+    room = db.query(ChatRoom).filter(ChatRoom.patient_id == patient.patient_id).first()
+    if not room:
+        return success_response(data=[], message="查询成功，共0条对话记录")
+
+    # ===================== 修复后的核心查询 =====================
+    # ✅ 直接通过 room_id 查询消息，不依赖会话！
+    query = db.query(Message).filter(Message.room_id == room.room_id)
 
     # 3. 时间过滤
     if start_date:
@@ -283,10 +286,10 @@ async def get_patient_chat_messages(
         except ValueError:
             raise HTTPException(status_code=400, detail="结束日期格式错误")
 
-    # 4. 排序
+    # 4. 排序（按时间正序）
     messages = query.order_by(Message.create_time.asc()).all()
 
-    # 5. 格式化
+    # 5. 格式化返回
     result = [ChatMessageSchema(msg).__dict__ for msg in messages]
 
     return success_response(

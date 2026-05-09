@@ -1040,9 +1040,8 @@ class Message(Base):
     # 外键 - 聊天室
     room_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey('chat_room.room_id', ondelete='CASCADE'),
         nullable=False,
-        comment='所属聊天室ID（关联chat_room表）'
+        comment='所属聊天室ID'
     )
 
     # 外键 - 会话
