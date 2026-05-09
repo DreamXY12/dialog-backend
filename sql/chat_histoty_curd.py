@@ -231,38 +231,38 @@ def get_active_session_by_room_id(
 
         created = False
 
-        if not active_session and create_if_not_exists:
-            # 3. 创建新会话
-            session_number = db.query(ConversationSession).filter(
-                ConversationSession.room_id == room_id
-            ).count() + 1
-
-            # 判断会话类型
-            session_type = SessionType.AI_ONLY
-            if chat_room.nurse_id:
-                # 检查护士是否在工作时间
-                if is_nurse_in_working_hours(chat_room.nurse_id, db):
-                    session_type = SessionType.NURSE_ASSISTED
-
-            active_session = ConversationSession(
-                room_id=room_id,
-                session_number=session_number,
-                session_type=session_type,
-                session_status=SessionStatus.ACTIVE,
-                start_time=datetime.now(),
-                # 如果有护士班次，可以关联
-                nurse_shift_id=None  # 这里可以根据业务逻辑设置
-            )
-            db.add(active_session)
-            db.commit()
-            db.refresh(active_session)
-            created = True
-
-            # 更新聊天室的当前会话UUID
-            chat_room.current_session_uuid = active_session.session_uuid
-            db.commit()
-
-            print(f"为房间{room_id}创建新会话: session_uuid={active_session.session_uuid}")
+        # if not active_session and create_if_not_exists:
+        #     # 3. 创建新会话
+        #     session_number = db.query(ConversationSession).filter(
+        #         ConversationSession.room_id == room_id
+        #     ).count() + 1
+        #
+        #     # 判断会话类型
+        #     session_type = SessionType.AI_ONLY
+        #     if chat_room.nurse_id:
+        #         # 检查护士是否在工作时间
+        #         if is_nurse_in_working_hours(chat_room.nurse_id, db):
+        #             session_type = SessionType.NURSE_ASSISTED
+        #
+        #     active_session = ConversationSession(
+        #         room_id=room_id,
+        #         session_number=session_number,
+        #         session_type=session_type,
+        #         session_status=SessionStatus.ACTIVE,
+        #         start_time=datetime.now(),
+        #         # 如果有护士班次，可以关联
+        #         nurse_shift_id=None  # 这里可以根据业务逻辑设置
+        #     )
+        #     db.add(active_session)
+        #     db.commit()
+        #     db.refresh(active_session)
+        #     created = True
+        #
+        #     # 更新聊天室的当前会话UUID
+        #     chat_room.current_session_uuid = active_session.session_uuid
+        #     db.commit()
+        #
+        #     print(f"为房间{room_id}创建新会话: session_uuid={active_session.session_uuid}")
 
         return active_session, created
 
@@ -280,7 +280,8 @@ def get_or_create_message(
     sender_id: int,
     content: str,
     chat_mode: str = "AI",
-    temp_id: Optional[str] = None
+    temp_id: Optional[str] = None,
+    chat_room = None
 ) -> Tuple[Optional[Message], bool]:
     """
     创建消息记录（适配新 Message 模型）
@@ -294,12 +295,12 @@ def get_or_create_message(
         content: 消息内容
         chat_mode: 聊天模式
         temp_id: 临时ID（用于更新已存在的临时消息）
+        chat_room:房间对象
 
     Returns:
         Tuple[Optional[Message], bool]: (消息对象, 是否新创建的)
     """
     try:
-
         # 如果有temp_id，尝试查找（加上 room_id 防误匹配）
         if temp_id:
             message = db.query(Message).filter(
@@ -331,15 +332,18 @@ def get_or_create_message(
         db.add(message)
 
         # 更新会话的消息计数
-        session = db.query(ConversationSession).filter(
-            ConversationSession.session_uuid == session_uuid
-        ).first()
-        if session:
-            session.message_count += 1
-            session.last_message_time = datetime.utcnow()
+        if session_uuid:
+            session = db.query(ConversationSession).filter(
+                ConversationSession.session_uuid == session_uuid
+            ).first()
+            if session:
+                session.message_count += 1
+                session.last_message_time = datetime.now()
+
+        if chat_room:
+            chat_room.last_activity_time = datetime.now()
 
         db.commit()
-        db.refresh(message)
 
         return message, True
 

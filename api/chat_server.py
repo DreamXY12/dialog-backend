@@ -408,17 +408,18 @@ async def send_message(sid, data):
 
         message, _ = get_or_create_message(
             db=db,
-            session_uuid=str(active_session.session_uuid),
+            session_uuid=str(active_session.session_uuid) if active_session else None,
             sender_type=role_to_sender_type(role),
             sender_id=sender_id,
             content=data["content"],
             chat_mode=data.get("chatMode", "AI"),
             temp_id=data.get("temp_id"),
             room_id=chat_room.room_id,
+            chat_room=chat_room,
         )
 
-        chat_room.last_activity_time = datetime.now()
-        db.commit()
+        # chat_room.last_activity_time = datetime.now()
+        # db.commit()
 
         msg = {
             "message_uuid": message.message_uuid,
@@ -606,7 +607,14 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
         # ---------------------------------------------------------------------
         active_session = get_current_active_session(str(chat_room.room_id), db)
         if not active_session:
-            return
+            # 如果没有就从AI那里直接拿
+            patient_id = room["patient_id"]
+            new_session_id = ai_data.get("session_id")
+            active_session = await create_new_session(
+                room_id=str(chat_room.room_id), user_id=str(patient_id), role="patient", db=db,
+                ai_session_id=new_session_id)
+            update_chat_room_current_session_uuid_by_patient(db, patient_id, new_session_id)
+            # reply_text = ai_data.get("message", "").strip()
 
         # ---------------------------------------------------------------------
         # 4. 存入数据库（所有状态都存）
@@ -640,7 +648,6 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
 
     finally:
         await redis.delete(lock_key)
-        db.commit()
         db.close()
 
 # =========================

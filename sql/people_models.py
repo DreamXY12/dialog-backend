@@ -1047,7 +1047,7 @@ class Message(Base):
     # 外键 - 会话
     session_uuid: Mapped[str] = mapped_column(
         String(36),
-        nullable=False,
+        nullable=True,
         comment='所属会话UUID（外键关联conversation_session表）'
     )
 
