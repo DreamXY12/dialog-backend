@@ -19,6 +19,7 @@ from datetime import datetime
 from sql.chat_histoty_curd import get_room_uuid_by_id
 from sql.patient_curd import get_nurse
 from sql.nurse_curd import get_patient_ids_by_nurse
+from sql.chat_histoty_curd import update_message_session_uuid
 import httpx
 import urllib3
 from sqlalchemy.exc import SQLAlchemyError, PendingRollbackError
@@ -395,6 +396,10 @@ async def send_message(sid, data):
         room = await get_room(room_uuid)
         current_ai_session_id = room.get("ai_session_id")
 
+        is_active_session = True
+        if not active_session:
+            is_active_session = False
+
         # if not active_session and role=="patient":
         #     status, ai_data = await ai_public_chat(message=data["content"], room_uuid=room_uuid)
         #     if status == 200 and "session_id" in ai_data:
@@ -437,7 +442,7 @@ async def send_message(sid, data):
 
         if role == "patient" and room.get("ai_enabled", True) and data.get("chatMode") != "nurseType":
             task = asyncio.create_task(safe_task(
-                handle_ai_reply(room_uuid, msg, current_ai_session_id)
+                handle_ai_reply(room_uuid, msg, current_ai_session_id,message_uuid=message.message_uuid)
             ))
 
     # 🔥 关键 1：专门捕获 SQLAlchemy 事务错误
@@ -486,7 +491,7 @@ async def send_message(sid, data):
         db.close()
         db = None  # 释放引用
 
-async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
+async def handle_ai_reply(room_uuid, user_msg, ai_session_id,message_uuid=None):
     lock_key = f"{REDIS_AI_REPLY_LOCK}:{room_uuid}"
     await redis.set(lock_key, "1", ex=15)
 
@@ -581,6 +586,7 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
                     room_id=str(chat_room.room_id), user_id=str(patient_id), role="patient", db=db,
                     ai_session_id=new_session_id)
                     update_chat_room_current_session_uuid_by_patient(db, patient_id, new_session_id)
+                    update_message_session_uuid(db,message_uuid,new_session_id)
                     reply_text = ai_data.get("message", "").strip()
 
 
@@ -614,6 +620,7 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id):
                 room_id=str(chat_room.room_id), user_id=str(patient_id), role="patient", db=db,
                 ai_session_id=new_session_id)
             update_chat_room_current_session_uuid_by_patient(db, patient_id, new_session_id)
+            update_message_session_uuid(db, message_uuid, new_session_id)
             # reply_text = ai_data.get("message", "").strip()
 
         # ---------------------------------------------------------------------

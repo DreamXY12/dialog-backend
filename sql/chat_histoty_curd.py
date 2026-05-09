@@ -701,3 +701,26 @@ def update_chat_room_help_status(
         db.rollback()
         print(f"[求助更新] 失败: {str(e)}")
         return None, False
+
+
+def update_message_session_uuid(db: Session, message_uuid: str, session_uuid: str) -> bool:
+    """
+    根据 message_uuid 更新消息表的 session_uuid 字段
+    用于在新建会话后，回填之前用户那条“孤儿”消息的会话ID
+    """
+    try:
+        row_count = db.query(Message).filter(
+            Message.message_uuid == message_uuid
+        ).update({"session_uuid": session_uuid})
+
+        # 如果 row_count > 0 说明找到了并更新了
+        if row_count > 0:
+            db.commit()
+            return True
+        else:
+            db.rollback()
+            return False
+    except Exception as e:
+        db.rollback()
+        print(f"[Error] 更新消息 session_uuid 失败: {str(e)}")
+        return False
