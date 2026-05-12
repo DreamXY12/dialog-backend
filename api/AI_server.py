@@ -4,6 +4,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from fastapi import APIRouter
 from fastapi import HTTPException
 import requests  # 用来发请求第三方后端
+import time
+from fastapi.responses import StreamingResponse
+import json
+import asyncio
 
 AI_BASE_URL="https://agent.dialog.polyusn.com"
 
@@ -100,3 +104,74 @@ async def debug_session(session_id: str):
         return res.json()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Debug会话错误：{str(e)}")
+
+# 百度 OpenAI 兼容模式 强制要求的路径
+@router.post("/compatible/api/public/chat/chat/completions")
+async def compatible_public_chat(request_data: dict):
+    try:
+        # 1. 提取用户消息
+        user_message = ""
+        if "messages" in request_data:
+            for msg in request_data["messages"]:
+                if msg.get("role") == "user":
+                    user_message = msg.get("content", "").strip()
+                    break
+
+        if not user_message:
+            raise HTTPException(status_code=400, detail="未获取到用户消息")
+
+        session_id = request_data.get("session_id", "")
+        stream = request_data.get("stream", False)
+
+        # 2. 调用你真实的AI接口
+        res = requests.post(
+            url=f"{AI_BASE_URL}/api/public/chat",
+            json={"message": user_message, "session_id": session_id},
+            timeout=100,
+            verify=False
+        )
+        ai_response = res.json()
+        content = ai_response.get("message", "未获取到回复")
+
+        # ==============================================
+        # 关键：百度开启了 stream=True，逐字流式输出！
+        # ==============================================
+        if stream:
+            async def generate():
+                # 逐字发送
+                for char in content:
+                    data = {
+                        "id": f"chat-{int(time.time())}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": "Dialog",
+                        "choices": [
+                            {"delta": {"content": char}, "index": 0, "finish_reason": None}
+                        ]
+                    }
+                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(0.05)  # 逐字速度
+
+                # 结束标志
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(generate(), media_type="text/event-stream")
+
+        # 非流式（备用）
+        return {
+            "id": f"chat-{int(time.time())}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": "gpt-3.5-turbo",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"错误：{str(e)}")

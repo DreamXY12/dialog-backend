@@ -82,7 +82,7 @@ async def ckd_predict(req: CKDPredictRequest):
         "ldl": 2.79,
         "hdl": 1.29,
         "k": 4.24,
-        "creat": 67.42,
+        "creat": 120,
         "use_insulin": False,
         "stroke": False,
         "smoke": True,
