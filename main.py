@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from api.api import api_router
-from sql.crud import create_user, init_models
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from config import get_parameter

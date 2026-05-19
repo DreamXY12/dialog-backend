@@ -279,13 +279,14 @@ def get_or_create_message(
     sender_type: str,
     sender_id: int,
     content: str,
+    message_uuid:str = None,
     chat_mode: str = "AI",
     temp_id: Optional[str] = None,
     chat_room = None
 ) -> Tuple[Optional[Message], bool]:
     """
     创建消息记录（适配新 Message 模型）
-
+    如果message_uuid为空就创建，否则就沿用前端站位的uuid
     Args:
         db: 数据库会话
         room_id: 聊天室ID（必填）
@@ -293,6 +294,7 @@ def get_or_create_message(
         sender_type: 发送者类型
         sender_id: 发送者ID
         content: 消息内容
+        message_uuid: 前端用来站位的消息uuid
         chat_mode: 聊天模式
         temp_id: 临时ID（用于更新已存在的临时消息）
         chat_room:房间对象
@@ -302,22 +304,23 @@ def get_or_create_message(
     """
     try:
         # 如果有temp_id，尝试查找（加上 room_id 防误匹配）
-        if temp_id:
-            message = db.query(Message).filter(
-                Message.room_id == room_id,          # 只在本房间查找
-                Message.session_uuid == session_uuid,
-                Message.content.like(f"%{temp_id}%")
-            ).first()
-
-            if message:
-                # 更新现有消息
-                message.content = content
-                message.chat_mode = chat_mode       # 枚举赋值，可自动转换
-                db.commit()
-                return message, False
+        # if message_uuid:
+        #     message = db.query(Message).filter(
+        #         Message.room_id == room_id,          # 只在本房间查找
+        #         Message.session_uuid == session_uuid,
+        #         Message.content.like(f"%{temp_id}%")
+        #     ).first()
+        #
+        #     if message:
+        #         # 更新现有消息
+        #         message.content = content
+        #         message.chat_mode = chat_mode       # 枚举赋值，可自动转换
+        #         db.commit()
+        #         return message, False
 
         # 创建新消息
-        message_uuid = str(uuid.uuid4())
+        if message_uuid is None:
+            message_uuid = str(uuid.uuid4())
         message = Message(
             message_uuid=message_uuid,
             room_id=room_id,                        # 必填
@@ -371,10 +374,10 @@ def update_message_read_status(
 
         if reader_role == "nurse":
             message.nurse_read = True
-            print("护士已看，标记已读")
+            #print("护士已看，标记已读")
         elif reader_role == "patient":
             message.patient_read = True
-            print("病人已看，标记已读")
+            # print("病人已看，标记已读")
         else:
             return False
 

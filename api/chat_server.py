@@ -387,6 +387,7 @@ async def send_message(sid, data):
     db: Session = next(get_db())
 
     try:
+
         chat_room = get_chat_room_by_uuid(db, room_uuid)
         if not chat_room:
             return
@@ -397,8 +398,8 @@ async def send_message(sid, data):
         current_ai_session_id = room.get("ai_session_id")
 
         is_active_session = True
-        if not active_session:
-            is_active_session = False
+        #if not active_session:
+            # is_active_session = False
 
         # if not active_session and role=="patient":
         #     status, ai_data = await ai_public_chat(message=data["content"], room_uuid=room_uuid)
@@ -417,6 +418,7 @@ async def send_message(sid, data):
             sender_type=role_to_sender_type(role),
             sender_id=sender_id,
             content=data["content"],
+            message_uuid=data.get("message_uuid",None),
             chat_mode=data.get("chatMode", "AI"),
             temp_id=data.get("temp_id"),
             room_id=chat_room.room_id,
@@ -441,8 +443,9 @@ async def send_message(sid, data):
         await sio.emit("receive_message", msg, room=room_uuid)
 
         if role == "patient" and room.get("ai_enabled", True) and data.get("chatMode") != "nurseType":
+            ai_message_uuid = data.get("ai_message_uuid", None)
             task = asyncio.create_task(safe_task(
-                handle_ai_reply(room_uuid, msg, current_ai_session_id,message_uuid=message.message_uuid)
+                handle_ai_reply(room_uuid, msg, current_ai_session_id,message_uuid=message.message_uuid,ai_message_uuid=ai_message_uuid)
             ))
 
     # 🔥 关键 1：专门捕获 SQLAlchemy 事务错误
@@ -491,7 +494,8 @@ async def send_message(sid, data):
         db.close()
         db = None  # 释放引用
 
-async def handle_ai_reply(room_uuid, user_msg, ai_session_id,message_uuid=None):
+async def handle_ai_reply(room_uuid, user_msg, ai_session_id,message_uuid=None,ai_message_uuid=None):
+    # 这个message_uuid指的是用户发送消息的uuid，用于update_message_session_uuid函数
     lock_key = f"{REDIS_AI_REPLY_LOCK}:{room_uuid}"
     await redis.set(lock_key, "1", ex=15)
 
@@ -626,12 +630,15 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id,message_uuid=None):
         # ---------------------------------------------------------------------
         # 4. 存入数据库（所有状态都存）
         # ---------------------------------------------------------------------
+        if ai_message_uuid is None:
+            ai_message_uuid = str(uuid.uuid4())
         get_or_create_message(
             db=db,
             session_uuid=str(active_session.session_uuid),
             sender_type="ai",
             sender_id=0,
             content=reply_text,
+            message_uuid=ai_message_uuid,
             chat_mode="AI",
             temp_id=None,
             room_id=chat_room.room_id,
@@ -640,18 +647,65 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id,message_uuid=None):
         # ---------------------------------------------------------------------
         # 5. 推送给前端（一定会发）
         # ---------------------------------------------------------------------
-        msg_id = str(uuid.uuid4())
-        ai_msg = {
-            "message_uuid": msg_id,
+        # msg_id = str(uuid.uuid4())
+        # ai_msg = {
+        #     "message_uuid": msg_id,
+        #     "room_uuid": room_uuid,
+        #     "user_id": "ai",
+        #     "role": "ai",
+        #     "content": reply_text,
+        #     "streaming": False,
+        #     "chatMode": "AI",
+        #     "state": ai_state
+        # }
+        # await sio.emit("receive_message", ai_msg, room=room_uuid)
+
+        # ---------------------------------------------------------------------
+        # 5. ✅ 流式推送给前端（核心改造区）
+        # ---------------------------------------------------------------------
+        base_msg = {
+            "message_uuid": ai_message_uuid,
             "room_uuid": room_uuid,
             "user_id": "ai",
             "role": "ai",
-            "content": reply_text,
-            "streaming": False,
             "chatMode": "AI",
+            "isLoading": False,
+        }
+
+        # 空内容直接发结束包
+        if not reply_text:
+            ai_msg = {**base_msg, "content": "", "streaming": False, "state": ai_state}
+            await sio.emit("receive_message", ai_msg, room=room_uuid)
+            return
+
+        # ==============================================
+        # 流式发送：逐字/逐块推送，最后发结束标志
+        # ==============================================
+        stream_delay = 0.08  # 可调整打字速度（秒）
+        content_length = len(reply_text)
+        chunk_size = 1       # 每次发1个字符（逐字效果最好）
+
+        # 流式分段发送
+        for i in range(0, content_length, chunk_size):
+            chunk = reply_text[i:i + chunk_size]
+            stream_msg = {
+                **base_msg,
+                "content": chunk,
+                "streaming": True,
+                "state": ai_state
+            }
+            await sio.emit("receive_message", stream_msg, room=room_uuid)
+            await asyncio.sleep(stream_delay)  # 加延迟模拟打字机效果
+
+        # ✅ 最后发送一条结束消息（streaming=False）
+        end_msg = {
+            **base_msg,
+            "content": reply_text,  # 前端可选择拼接或忽略
+            "streaming": False,
             "state": ai_state
         }
-        await sio.emit("receive_message", ai_msg, room=room_uuid)
+        await sio.emit("receive_message", end_msg, room=room_uuid)
+
 
     finally:
         await redis.delete(lock_key)
