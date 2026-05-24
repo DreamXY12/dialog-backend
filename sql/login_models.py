@@ -6,8 +6,9 @@ import enum
 from sql.start import Base
 import datetime
 from sqlalchemy.dialects.mysql import JSON
+from datetime import date, datetime
+from sqlalchemy.types import Date as SqlDate  # 关键！区分开 SQL 的 Date 和 Python 的 date
 
-from pydantic import BaseModel, Field
 
 class TimeStampMixIn(object):
     '''
@@ -87,62 +88,56 @@ class Patient(TimeStampMixIn, Base):
     last_name: Mapped[str] = mapped_column(String(50))
     hashed_password: Mapped[str] = mapped_column(String(255))
 
-    # 健康信息
-    date_of_birth: Mapped[Optional[Date]] = mapped_column(Date, nullable=True)
+    # 健康信息 —— 这里修复！用 Python 的 date，不是 SQL 的 Date
+    date_of_birth: Mapped[date | None] = mapped_column(SqlDate, nullable=True)
+
     sex: Mapped[Optional[str]] = mapped_column(
-        Enum(
-            Gender,
-            values_callable=lambda enum: [e.value for e in enum]
-        ),
+        Enum(Gender, values_callable=lambda enum: [e.value for e in enum]),
         nullable=True
     )
     family_history: Mapped[Optional[str]] = mapped_column(
-        Enum(
-            FamilyHistory,
-            values_callable=lambda enum: [e.value for e in enum]
-        ),
+        Enum(FamilyHistory, values_callable=lambda enum: [e.value for e in enum]),
         nullable=True
     )
     smoking_status: Mapped[Optional[str]] = mapped_column(
-        Enum(
-            SmokingStatus,
-            values_callable=lambda enum: [e.value for e in enum]
-        ),
+        Enum(SmokingStatus, values_callable=lambda enum: [e.value for e in enum]),
         nullable=True
     )
     drinking_history: Mapped[Optional[str]] = mapped_column(
-        Enum(
-            DrinkingFrequency,
-            values_callable=lambda enum: [e.value for e in enum]
-        ),
+        Enum(DrinkingFrequency, values_callable=lambda enum: [e.value for e in enum]),
         nullable=True
     )
+
     height: Mapped[Optional[float]] = mapped_column(DECIMAL(5, 2), nullable=True)
     weight: Mapped[Optional[float]] = mapped_column(DECIMAL(5, 2), nullable=True)
 
-    # 外键 - 修改为连接护士的login_code
+    # 新增字段（放在 assigned_nurse_id 前）
+    has_diabetes: Mapped[Optional[str]] = mapped_column(
+        Enum("Yes", "No"),
+        nullable=True,
+        comment="是否患有糖尿病"
+    )
+    follow_up_date: Mapped[date | None] = mapped_column(SqlDate, nullable=True, comment="招募三月后随访抽血日期")
+
+    # 原有外键
     assigned_nurse_id: Mapped[Optional[str]] = mapped_column(
         String(4),
         ForeignKey("nurse.login_code"),
         nullable=True
     )
 
-    # 关系
     nurse: Mapped[Optional["Nurse"]] = relationship(back_populates="patients")
 
-    # 计算属性
     @property
     def full_name(self):
-        """获取完整姓名"""
         return f"{self.first_name}{self.last_name}"
 
     @property
     def age(self):
-        """计算年龄"""
+        """✅ 现在不会报错了！"""
         if self.date_of_birth:
-            today = datetime.datetime.now().date()
+            today = datetime.now().date()
             age = today.year - self.date_of_birth.year
-            # 如果生日还没到，年龄减1
             if (today.month, today.day) < (self.date_of_birth.month, self.date_of_birth.day):
                 age -= 1
             return age
@@ -150,10 +145,9 @@ class Patient(TimeStampMixIn, Base):
 
     @property
     def bmi(self):
-        """计算BMI"""
         if self.height and self.weight and float(self.height) > 0:
             height_in_m = float(self.height) / 100
-            bmi_value = float(self.weight) / (height_in_m * height_in_m)
+            bmi_value = float(self.weight) / (height_in_m ** 2)
             return round(bmi_value, 2)
         return None
 

@@ -14,6 +14,8 @@ from sql.people_models import ConversationSession, ChatRoom
 from typing import Any
 from datetime import time
 import pytz
+from datetime import date
+from sql.patient_report_service import get_patient_daily_chat_report
 
 # 初始化路由
 router = APIRouter(prefix="/nurses", tags=["nurses"])
@@ -384,3 +386,22 @@ def update_nurse_today_work_time_api(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"修改工作时间失败: {str(e)}"
         )
+
+@router.get("/patient/chat-report/{room_uuid}")  # 这里改成 room_uuid
+def patient_chat_report(
+    room_uuid: str,  # 改成 str 类型
+    patient_id: int = Query(...),
+    date_str: str = Query(None),
+    db: Session = Depends(get_db)
+):
+    target_date = None
+    if date_str:
+        target_date = date.fromisoformat(date_str)
+
+    report = get_patient_daily_chat_report(
+        db=db,
+        room_uuid=room_uuid,  # 传入 uuid
+        patient_id=patient_id,
+        report_date=target_date
+    )
+    return {"code": 200, "message": "success", "data": report}

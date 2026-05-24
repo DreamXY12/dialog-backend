@@ -7,12 +7,14 @@ from sql.start import get_db
 from utility.fun_tool import decode_token
 from api.auth import oauth2_scheme
 from sqlalchemy.orm import Session
-from sql.people_models import Gender, FamilyHistory, SmokingStatus, DrinkingFrequency
+from sql.people_models import Gender, FamilyHistory, SmokingStatus, DrinkingFrequency,DiabetesStatus
 from sql.patient_curd import get_patient_by_id,update_patient_record
 from datetime import date, datetime
 from sql.nurse_curd import get_nurse_by_id
 from sql.patient_curd import get_patient_by_phone
 from sql.people_models import Patient,BloodGlucoseRecord
+from dateutil.relativedelta import relativedelta
+from sql.nurse_curd import get_patient_diabetes_and_followup
 
 # 后端前缀
 router = APIRouter(prefix="/patients", tags=["patient"])
@@ -40,6 +42,7 @@ class FirstLoginUpdate(BaseModel):
     family_history: Optional[str] = None
     smoking: Optional[str] = None
     drinking: Optional[str] = None
+    has_diabetes: str
 
     class Config:
         schema_extra = {
@@ -50,7 +53,8 @@ class FirstLoginUpdate(BaseModel):
                 "sex": "Female",
                 "family_history": "No",
                 "smoking": "No",
-                "drinking": "Never"
+                "drinking": "Never",
+                "has_diabetes:":"No"
             }
         }
 
@@ -135,7 +139,7 @@ async def update_current_patient_first_login(
                 detail=f"无效的家族病史选项，仅支持：{valid_fh}"
             )
 
-    # 3. 吸烟状态（补充Prefer not to tell选项）
+    # 3. 吸烟状态
     if update_data.smoking:
         valid_smoking = [e.value for e in SmokingStatus]
         if update_data.smoking in valid_smoking:
@@ -146,7 +150,7 @@ async def update_current_patient_first_login(
                 detail=f"无效的吸烟选项，仅支持：{valid_smoking}"
             )
 
-    # 4. 饮酒频率（严格匹配枚举值）
+    # 4. 饮酒频率
     if update_data.drinking:
         valid_drinking = [e.value for e in DrinkingFrequency]
         if update_data.drinking in valid_drinking:
@@ -157,21 +161,37 @@ async def update_current_patient_first_login(
                 detail=f"无效的饮酒频率选项，仅支持：{valid_drinking}"
             )
 
-    # 5. 身高体重（已通过Pydantic校验，直接赋值）
+    # 5. 身高体重
     update_dict["height"] = float(update_data.height)
     update_dict["weight"] = float(update_data.weight)
 
-    # 6. 年龄转出生日期（优化边界：避免未来日期）
+    # 6. 年龄转出生日期
     current_year = date.today().year
     birth_year = current_year - update_data.age
-    # 防止年龄过大导致出生年份为负数
     if birth_year < 1900:
         birth_year = 1900
     update_dict["date_of_birth"] = date(birth_year, 1, 1)
 
-    logger.info(f"更新参数: {update_dict}")
+    # ==================== ✅ 新增：是否患有糖尿病 ====================
+    if update_data.has_diabetes:
+            update_dict["has_diabetes"] = update_data.has_diabetes
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"无效的糖尿病状态"
+        )
 
-    # 调用更新函数
+    # ==================== ✅ 新增：自动计算 3 个月随访日期 ====================
+    if patient.create_time:
+        create_date = patient.create_time.date()  # 只取日期
+        follow_up_date = create_date + relativedelta(months=3)
+        update_dict["follow_up_date"] = follow_up_date
+
+    # ================================================================
+
+    logger.info(f"最终更新参数: {update_dict}")
+
+    # 调用更新
     patient = update_patient_record(db, patient_id, update_dict)
     if not patient:
         raise HTTPException(
@@ -181,24 +201,25 @@ async def update_current_patient_first_login(
 
     logger.info(f"更新成功: patient_id={patient.patient_id}")
 
-    # 返回序列化结果（移除所有护士相关字段）
+    # 返回结果（新增两个字段）
     return {
         "patient_id": patient.patient_id,
-        "phone": patient.phone,  # 替换原login_code（新模型无login_code）
+        "phone": patient.phone,
         "first_name": patient.first_name,
         "last_name": patient.last_name,
         "height": float(patient.height) if patient.height else None,
         "weight": float(patient.weight) if patient.weight else None,
         "date_of_birth": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
-        "sex": patient.sex.value if patient.sex else None,  # 枚举值转字符串
+        "sex": patient.sex.value if patient.sex else None,
         "family_history": patient.family_history.value if patient.family_history else None,
         "smoking_status": patient.smoking_status.value if patient.smoking_status else None,
         "drinking_history": patient.drinking_history.value if patient.drinking_history else None,
+        "has_diabetes": patient.has_diabetes if patient.has_diabetes else None,  # ✅ 新增
+        "follow_up_date": patient.follow_up_date.isoformat() if patient.follow_up_date else None,  # ✅ 新增
         "full_name": patient.full_name,
         "age": patient.age,
         "bmi": patient.bmi
     }
-
 @router.get("/me/profile")
 async def get_patient_profile(
         phone: str = Query(..., description="患者登录手机号（带区号，如+85212345678）"),
@@ -242,7 +263,7 @@ async def get_patient_profile(
     # 5. 获取护士信息（适配新模型：按手机号查询）
     nurse_info = None
     if patient.assigned_nurse_id:
-        nurse = get_nurse_by_id(db, patient.assigned_nurse_id)
+        nurse = get_nurse_by_id(db, int(patient.assigned_nurse_id))
         if nurse:
             nurse_info = {
                 "nurse_id": nurse.nurse_id,
@@ -591,3 +612,18 @@ async def delete_blood_glucose_record(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="删除血糖记录失败"
         )
+
+
+@router.get("/diabetes-followup")
+def get_diabetes_followup_info(
+        patient_id: int = Query(..., description="患者ID"),
+        db: Session = Depends(get_db)
+):
+    data = get_patient_diabetes_and_followup(db, patient_id)
+    if not data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="患者不存在")
+
+    return {
+        "has_diabetes": data.has_diabetes,
+        "follow_up_date": data.follow_up_date.isoformat() if data.follow_up_date else None
+    }

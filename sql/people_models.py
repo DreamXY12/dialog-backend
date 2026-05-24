@@ -3,6 +3,7 @@
 from __future__ import annotations
 from sqlalchemy import Boolean,Text,Time,text,BigInteger
 import datetime
+from datetime import datetime,date
 
 # 基础导入（确保环境安装：pip install sqlalchemy>=2.0 python-dotenv）
 import enum
@@ -16,6 +17,8 @@ from sqlalchemy.orm import (
 )
 
 from sqlalchemy.dialects.mysql import JSON
+
+from sqlalchemy.types import Date as SqlDate
 
 # 在枚举类定义区域添加
 class ReaderRole(str, enum.Enum):
@@ -68,6 +71,10 @@ class DrinkingFrequency(str, enum.Enum):
     OCCASIONALLY = "Occasionally"
     FREQUENTLY = "Frequently"
     DAILY = "Daily"
+
+class DiabetesStatus(str, Enum):
+    YES = "Yes"
+    NO = "No"
 
 # ---------------------------
 # 护士表模型（完全匹配nurse表结构）
@@ -235,6 +242,10 @@ class Patient(TimeStampMixIn, Base):
         comment='体重（公斤）'
     )
 
+    # ✅ 新增字段（完全按你的 SQL）
+    has_diabetes: Mapped[str | None] = mapped_column(Enum("Yes", "No"), nullable=True)
+    follow_up_date: Mapped[date | None] = mapped_column(SqlDate, nullable=True, comment="招募三月后随访抽血日期")
+
     # 🔴 修改2：替换外键字段（核心修改）
     assigned_nurse_id: Mapped[Optional[int]] = mapped_column(
         Integer,
@@ -270,7 +281,7 @@ class Patient(TimeStampMixIn, Base):
         """计算患者年龄（基于出生日期）"""
         if not self.date_of_birth:
             return None
-        today = datetime.date.today()
+        today = date.today()
         age = today.year - self.date_of_birth.year
         # 未到生日则年龄减1
         if (today.month, today.day) < (self.date_of_birth.month, self.date_of_birth.day):

@@ -268,7 +268,7 @@ async def get_unread_message_count(
         # 获取当前活跃会话（你原有的函数）
         active_session = get_current_active_session(room_uuid, db)
         if not active_session:
-            return {"unread_count": 0, "room_id": room_uuid}
+            return {"unread_count": 0, "room_uuid": room_uuid}
 
         # 根据用户角色确定统计哪些发送者
         if user_role == "patient":

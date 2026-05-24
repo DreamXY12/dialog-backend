@@ -698,3 +698,18 @@ def get_nurse_today_work_time_curd(db: Session,nurse_id: int):
             NurseWorkShift.work_date == today
         ).first()
     return shift
+
+def get_patient_diabetes_and_followup(db: Session, patient_id: int):
+    """
+    单独获取患者 2 个核心字段：
+    - has_diabetes 是否糖尿病
+    - follow_up_date 随访日期
+    """
+    patient = db.query(
+        Patient.has_diabetes,
+        Patient.follow_up_date
+    ).filter(
+        Patient.patient_id == patient_id
+    ).first()
+
+    return patient

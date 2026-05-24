@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from sql.ckd_model import CkdPredictionRecord, CkdPredictionFile
+from sql.ckd_model import CkdPredictionRecord, CkdPredictionFile, PatientCkdRiskRecord
+from datetime import date
+from sqlalchemy import cast, Date
 
 
 # ====================== 1. 创建 CKD 预测记录（最常用） ======================
@@ -131,3 +133,130 @@ def get_latest_ckd_with_file(db: Session, user_id: int):
         .order_by(desc(CkdPredictionRecord.create_time))
         .first()
     )
+
+# ===== 正在使用的函数 =====
+def create_patient_ckd_prediction(
+    db: Session,
+    patient_id: int,
+    age: int,
+    sex: str,
+    bmi: float,
+    whr: float,
+    hba1c: float,
+    tc: float,
+    ldl: float,
+    hdl: float,
+    k: float,
+    creat: float,
+    fpg: float,
+    sbp: float,
+    dbp: float,
+    use_insulin: bool,
+    stroke: bool,
+    smoke: bool,
+    anti_ht: bool,
+    angio: bool,
+    other_dm: bool,
+    foot_prob: bool,
+    eye_prob: bool,
+    test_date: date,
+    model_type: str = "Full",
+    risk_group: str = None,
+    risk_2y_percent: float = None,
+    risk_5y_percent: float = None,
+    population_percentile: float = None,
+    image_url: str = None
+):
+    # ✅ 安全赋值写法，0 警告
+    record = PatientCkdRiskRecord()
+
+    record.patient_id = patient_id
+    record.age = age
+    record.sex = sex
+    record.bmi = bmi
+    record.whr = whr
+    record.hba1c = hba1c
+    record.tc = tc
+    record.ldl = ldl
+    record.hdl = hdl
+    record.k = k
+    record.creat = creat
+    record.fpg = fpg
+    record.sbp = sbp
+    record.dbp = dbp
+    record.use_insulin = use_insulin
+    record.stroke = stroke
+    record.smoke = smoke
+    record.anti_ht = anti_ht
+    record.angio = angio
+    record.other_dm = other_dm
+    record.foot_prob = foot_prob
+    record.eye_prob = eye_prob
+    record.test_date = test_date
+    record.model_type = model_type
+    record.risk_group = risk_group
+    record.risk_2y_percent = risk_2y_percent
+    record.risk_5y_percent = risk_5y_percent
+    record.population_percentile = population_percentile
+    record.image_url = image_url
+
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+# 根据 患者ID + 日期 获取当天最新 CKD 记录
+def get_latest_ckd_by_patient_and_date(db: Session, patient_id: int, test_date: date):
+    return db.query(PatientCkdRiskRecord)\
+        .filter(PatientCkdRiskRecord.patient_id == patient_id)\
+        .filter(PatientCkdRiskRecord.test_date == test_date)\
+        .order_by(PatientCkdRiskRecord.id.desc())\
+        .first()
+
+# 根据 患者ID + 日期 获取当天所有 CKD 记录
+def get_all_ckd_by_patient_and_date(db: Session, patient_id: int, test_date: date):
+    return db.query(PatientCkdRiskRecord)\
+        .filter(PatientCkdRiskRecord.patient_id == patient_id)\
+        .filter(PatientCkdRiskRecord.test_date == test_date)\
+        .order_by(PatientCkdRiskRecord.id.desc())\
+        .all()
+
+# 按【时间段】获取 CKD 记录（支持灵活条件）
+def get_ckd_by_date_range(
+    db: Session,
+    patient_id: int,
+    start_date: date | None = None,
+    end_date: date | None = None
+):
+    query = db.query(PatientCkdRiskRecord).filter(PatientCkdRiskRecord.patient_id == patient_id)
+
+    if start_date is not None:
+        query = query.filter(cast(PatientCkdRiskRecord.create_time, Date) >= start_date)
+    if end_date is not None:
+        query = query.filter(cast(PatientCkdRiskRecord.create_time, Date) <= end_date)
+
+    return query.order_by(PatientCkdRiskRecord.create_time.desc()).all()
+
+def get_ckd_by_date_range_paginated(
+    db: Session,
+    patient_id: int,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    page: int = 1,
+    page_size: int = 5
+):
+    query = db.query(PatientCkdRiskRecord).filter(
+        PatientCkdRiskRecord.patient_id == patient_id
+    )
+
+    if start_date is not None:
+        query = query.filter(cast(PatientCkdRiskRecord.create_time, Date) >= start_date)
+    if end_date is not None:
+        query = query.filter(cast(PatientCkdRiskRecord.create_time, Date) <= end_date)
+
+    total = query.count()
+    records = query.order_by(PatientCkdRiskRecord.create_time.desc())\
+                   .offset((page - 1) * page_size)\
+                   .limit(page_size)\
+                   .all()
+    return total, records

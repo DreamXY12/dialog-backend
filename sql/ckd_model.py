@@ -1,11 +1,14 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text,Index, Date
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
-from datetime import datetime
+from sqlalchemy.orm import relationship,Mapped, mapped_column
+from sql.people_models import TimeStampMixIn
+from datetime import datetime,date
+from typing import Optional
 
 Base = declarative_base()
 
 # ====================== CKD 预测主表（已加 user_id） ======================
+# ====== 已废弃，但表还在 ========
 class CkdPredictionRecord(Base):
     __tablename__ = "ckd_prediction_record"
 
@@ -58,6 +61,7 @@ class CkdPredictionRecord(Base):
 
 
 # ====================== CKD 预测文件表 ======================
+# ===== 已废弃，但表还在 =====
 class CkdPredictionFile(Base):
     __tablename__ = "ckd_prediction_file"
 
@@ -69,3 +73,67 @@ class CkdPredictionFile(Base):
     s3_path = Column(Text, comment="完整S3路径")
 
     prediction = relationship("CkdPredictionRecord", back_populates="file_info")
+
+
+# ====== CKD表，真正的使用的，里面包含了AI生成图的路径 =====
+class PatientCkdRiskRecord(TimeStampMixIn, Base):
+    """
+    CKD 肾病风险检测记录表
+    对应：/ai/ckd_predict
+    """
+    __tablename__ = "patient_ckd_risk_record"
+    __table_args__ = (
+        Index("idx_patient_date", "patient_id", "test_date"),
+        {
+            "comment": "CKD肾病风险检测记录",
+            "mysql_engine": "InnoDB",
+            "mysql_charset": "utf8mb4",
+            "mysql_collate": "utf8mb4_unicode_ci",
+        },
+    )
+
+    # 主键
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="自增ID"
+    )
+
+    # 关联患者
+    patient_id: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="患者ID（对应用户表）"
+    )
+
+    # 基础信息
+    age: Mapped[int] = mapped_column(Integer, comment="年龄")
+    sex: Mapped[str] = mapped_column(String(10), comment="性别：Male/Female")
+    bmi: Mapped[float] = mapped_column(Float, comment="身体质量指数")
+    whr: Mapped[float] = mapped_column(Float, comment="腰臀比")
+
+    # 血液/生化指标
+    hba1c: Mapped[float] = mapped_column(Float, comment="糖化血红蛋白")
+    tc: Mapped[float] = mapped_column(Float, comment="总胆固醇")
+    ldl: Mapped[float] = mapped_column(Float, comment="低密度脂蛋白胆固醇")
+    hdl: Mapped[float] = mapped_column(Float, comment="高密度脂蛋白胆固醇")
+    k: Mapped[float] = mapped_column(Float, comment="血钾")
+    creat: Mapped[float] = mapped_column(Float, comment="肌酐")
+    fpg: Mapped[float] = mapped_column(Float, comment="空腹血糖")
+    sbp: Mapped[float] = mapped_column(Float, comment="收缩压")
+    dbp: Mapped[float] = mapped_column(Float, comment="舒张压")
+
+    # 病史/行为
+    use_insulin: Mapped[bool] = mapped_column(Boolean, default=False, comment="使用胰岛素")
+    stroke: Mapped[bool] = mapped_column(Boolean, default=False, comment="中风")
+    smoke: Mapped[bool] = mapped_column(Boolean, default=False, comment="吸烟")
+    anti_ht: Mapped[bool] = mapped_column(Boolean, default=False, comment="高血压药物")
+    angio: Mapped[bool] = mapped_column(Boolean, default=False, comment="心绞痛")
+    other_dm: Mapped[bool] = mapped_column(Boolean, default=False, comment="其他糖尿病并发症")
+    foot_prob: Mapped[bool] = mapped_column(Boolean, default=False, comment="足部问题")
+    eye_prob: Mapped[bool] = mapped_column(Boolean, default=False, comment="眼部问题")
+
+    # 检测结果
+    test_date: Mapped[date] = mapped_column(Date, nullable=False, comment="检测日期")
+    model_type: Mapped[Optional[str]] = mapped_column(String(20), comment="模型类型")
+    risk_group: Mapped[Optional[str]] = mapped_column(String(20), comment="风险等级：low/medium/high")
+    risk_2y_percent: Mapped[Optional[float]] = mapped_column(Float, comment="2年风险概率%")
+    risk_5y_percent: Mapped[Optional[float]] = mapped_column(Float, comment="5年风险概率%")
+    population_percentile: Mapped[Optional[float]] = mapped_column(Float, comment="人群百分位%")
+    image_url: Mapped[Optional[str]] = mapped_column(String(512), comment="风险曲线图片地址")

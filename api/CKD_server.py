@@ -1,21 +1,27 @@
 # 忽略 SSL 不安全警告（测试环境专用）
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-from fastapi import APIRouter
 from fastapi import HTTPException
 import requests  # 用来发 POST 请求第三方后端
 import boto3
 from pydantic import BaseModel
 from sql.start import get_db
 from sql.ckd_curd import (
-    create_ckd_prediction,
-    get_latest_ckd_with_file
+   create_patient_ckd_prediction,
+    get_all_ckd_by_patient_and_date,
+   get_ckd_by_date_range_paginated
+
 )
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+from datetime import date
 
 # ==========================
 # 1. 定义和前端完全对齐的请求体模型
 # ==========================
 class CKDPredictRequest(BaseModel):
+    patient_id: int
     model_type: str
     horizon: str
     age: int
@@ -119,14 +125,25 @@ async def ckd_predict(req: CKDPredictRequest):
             raise HTTPException(status_code=503, detail="第三方服务暂时不可用")
 
         ckd_result = response.json()
-        # 如果沒有錯誤就保存到數據庫
-        # create_ckd_prediction(db=get_db(),)
+
 
         # 生成图片预签名地址
         bucket = ckd_result.get("bucket")
         key = ckd_result.get("key")
         if bucket and key:
             ckd_result["image_url"] = generate_s3_presigned_url(bucket, key)
+
+        # 如果沒有錯誤就保存到數據庫
+        record = create_patient_ckd_prediction(db=get_db(), patient_id=payload["patient_id"],age=payload["age"],sex=payload["sex"],bmi=payload["bmi"],
+                                      whr=payload["whr"],hba1c=payload["hba1c"],tc=payload["tc"],ldl=payload["ldl"],hdl=payload["hdl"],
+                                      k=payload["k"],creat=payload["creat"],fpg=payload["fpg"],sbp=payload["sbp"],dbp=payload["dbp"],
+                                      use_insulin=payload["use_insulin"],stroke=payload["stroke"],smoke=payload["smoke"],anti_ht=payload["anti_ht"],
+                                      angio=payload["angio"],other_dm = payload["other_dm"],foot_prob=payload["foot_prob"],eye_prob=payload["eye_prob"],
+                                      test_date=payload["test_date"],model_type=payload["model_type"],risk_group=ckd_result["risk_group"],
+                                      risk_2y_percent=ckd_result["risk_2y_percent"],risk_5y_percent=ckd_result["risk_5y_percent"],
+                                      population_percentile=ckd_result["population_percentile"],image_url=ckd_result["image_url"]
+                                      )
+
 
         return ckd_result
 
@@ -177,4 +194,45 @@ async def ckd_health():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"服务器错误：{str(e)}")
 
+
+# 1. 获取【某一天】所有 CKD 记录
+@router.get("/ckd/records/day")
+def get_ckd_day_records(
+    patient_id: int,
+    date_str: str = Query(..., description="格式：2025-11-21"),
+    db: Session = Depends(get_db)
+):
+    query_date = date.fromisoformat(date_str)
+    records = get_all_ckd_by_patient_and_date(db, patient_id, query_date)
+    return {"code": 200, "data": records}
+
+# 2. 获取【时间段】CKD 记录
+@router.get("/ckd/records/range")
+def get_ckd_range_records(
+    patient_id: int,
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    page: int = Query(1),
+    page_size: int = Query(5),
+    db: Session = Depends(get_db)
+):
+    start = date.fromisoformat(start_date) if start_date else None
+    end = date.fromisoformat(end_date) if end_date else None
+
+    total,result = get_ckd_by_date_range_paginated(
+        db=db,
+        patient_id=patient_id,
+        start_date=start,
+        end_date=end,
+        page=page,
+        page_size=page_size
+    )
+
+    return {
+        "code": 200,
+        "data": result,
+        "total": total,
+        "page": page,
+        "page_size": page_size
+    }
 
