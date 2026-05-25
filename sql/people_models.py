@@ -1,7 +1,7 @@
 # 病人，护士，验证码的sql模型，利用SQLAlchemy
 
 from __future__ import annotations
-from sqlalchemy import Boolean,Text,Time,text,BigInteger
+from sqlalchemy import Boolean,Text,Time,text,BigInteger,TIMESTAMP,Column
 import datetime
 from datetime import datetime,date
 
@@ -144,6 +144,14 @@ class Nurse(TimeStampMixIn, Base):
         lazy="selectin"
     )
 
+    # 护士 ↔ 登录码（一对一关系）
+    login_code = relationship(
+        "NurseLoginCode",
+        back_populates="nurse",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
     # 计算属性
     @property
     def full_name(self):
@@ -152,6 +160,23 @@ class Nurse(TimeStampMixIn, Base):
 
     def __repr__(self):
         return f"<Nurse(nurse_id={self.nurse_id}, phone={self.phone}, full_name={self.full_name})>"
+
+class NurseLoginCode(Base):
+    __tablename__ = "nurse_login_code"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True, comment="主键")
+    nurse_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("nurse.nurse_id",ondelete="CASCADE", onupdate="CASCADE"),  # 外键必须保留
+        nullable=True,
+        comment="护士ID"
+    )
+    login_code_hash: Mapped[str] = mapped_column(String(255), nullable=False, comment="登录码哈希")
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False, comment="是否启用")
+    create_time: Mapped[TIMESTAMP] = mapped_column(TIMESTAMP, server_default=func.now())
+    update_time: Mapped[TIMESTAMP] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    nurse: Mapped["Nurse"] = relationship("Nurse", back_populates="login_code")
 
 # ---------------------------
 # 患者表模型（完全匹配patient表结构）
@@ -246,6 +271,13 @@ class Patient(TimeStampMixIn, Base):
     has_diabetes: Mapped[str | None] = mapped_column(Enum("Yes", "No"), nullable=True)
     follow_up_date: Mapped[date | None] = mapped_column(SqlDate, nullable=True, comment="招募三月后随访抽血日期")
 
+    # 患者 → 登录码（一对一）
+    login_code: Mapped["PatientLoginCode"] = relationship(
+        back_populates="patient",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
     # 🔴 修改2：替换外键字段（核心修改）
     assigned_nurse_id: Mapped[Optional[int]] = mapped_column(
         Integer,
@@ -299,6 +331,63 @@ class Patient(TimeStampMixIn, Base):
 
     def __repr__(self):
         return f"<Patient(patient_id={self.patient_id}, phone={self.phone}, full_name={self.full_name})>"
+
+class PatientLoginCode(Base):
+    """患者 4 位永久登录码表（加密存储，SQLAlchemy 2.0 标准写法）"""
+    __tablename__ = "patient_login_code"
+
+    # 主键ID
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        autoincrement=True,
+        comment="主键ID"
+    )
+
+    # 关联患者ID（唯一，一对一）
+    patient_id: Mapped[int|None] = mapped_column(
+        ForeignKey("patient.patient_id", ondelete="CASCADE", onupdate="CASCADE"),
+        unique=True,
+        nullable=True,  # 允许为空
+        comment="关联患者ID（唯一）"
+    )
+
+    # 登录码加密哈希
+    login_code_hash: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        comment="4位登录码哈希加密值"
+    )
+
+    # 是否启用
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="是否启用 1-启用 0-禁用"
+    )
+
+    # 创建时间
+    create_time: Mapped[datetime] = mapped_column(
+        TIMESTAMP,
+        server_default=func.now(),
+        comment="创建时间"
+    )
+
+    # 更新时间
+    update_time: Mapped[datetime] = mapped_column(
+        TIMESTAMP,
+        server_default=func.now(),
+        onupdate=func.now(),
+        comment="更新时间"
+    )
+
+    # 双向关联：登录码 → 患者
+    patient: Mapped["Patient"] = relationship(
+        back_populates="login_code"
+    )
+
+    def __repr__(self):
+        return f"<PatientLoginCode(patient_id={self.patient_id})>"
 
 
 # 定义验证码用途/角色的枚举类（增强类型安全）
