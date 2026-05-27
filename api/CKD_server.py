@@ -1,4 +1,6 @@
 # 忽略 SSL 不安全警告（测试环境专用）
+import datetime
+
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from fastapi import HTTPException
@@ -12,6 +14,8 @@ from sql.ckd_curd import (
    get_ckd_by_date_range_paginated
 
 )
+
+from sqlalchemy.exc import SQLAlchemyError  # 数据库相关异常（如果用到SQLAlchemy）
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -134,16 +138,28 @@ async def ckd_predict(req: CKDPredictRequest):
             ckd_result["image_url"] = generate_s3_presigned_url(bucket, key)
 
         # 如果沒有錯誤就保存到數據庫
-        record = create_patient_ckd_prediction(db=get_db(), patient_id=payload["patient_id"],age=payload["age"],sex=payload["sex"],bmi=payload["bmi"],
-                                      whr=payload["whr"],hba1c=payload["hba1c"],tc=payload["tc"],ldl=payload["ldl"],hdl=payload["hdl"],
-                                      k=payload["k"],creat=payload["creat"],fpg=payload["fpg"],sbp=payload["sbp"],dbp=payload["dbp"],
-                                      use_insulin=payload["use_insulin"],stroke=payload["stroke"],smoke=payload["smoke"],anti_ht=payload["anti_ht"],
-                                      angio=payload["angio"],other_dm = payload["other_dm"],foot_prob=payload["foot_prob"],eye_prob=payload["eye_prob"],
-                                      test_date=payload["test_date"],model_type=payload["model_type"],risk_group=ckd_result["risk_group"],
-                                      risk_2y_percent=ckd_result["risk_2y_percent"],risk_5y_percent=ckd_result["risk_5y_percent"],
-                                      population_percentile=ckd_result["population_percentile"],image_url=ckd_result["image_url"]
-                                      )
+        try:
+            record = create_patient_ckd_prediction(db=next(get_db()), patient_id=payload["patient_id"],age=payload["age"],sex=payload["sex"],bmi=payload["bmi"],
+                                          whr=payload["whr"],hba1c=payload["hba1c"],tc=payload["tc"],ldl=payload["ldl"],hdl=payload["hdl"],
+                                          k=payload["k"],creat=payload["creat"],fpg=payload["fpg"],sbp=payload["sbp"],dbp=payload["dbp"],
+                                          use_insulin=payload["use_insulin"],stroke=payload["stroke"],smoke=payload["smoke"],anti_ht=payload["anti_ht"],
+                                          angio=payload["angio"],other_dm = payload["other_dm"],foot_prob=payload["foot_prob"],eye_prob=payload["eye_prob"],
+                                          test_date=date.today(),model_type=payload["model_type"],risk_group=ckd_result["risk_group"],
+                                          risk_2y_percent=ckd_result["risk_2y_percent"],risk_5y_percent=ckd_result["risk_5y_percent"],
+                                          population_percentile=ckd_result["population_percentile"],image_url=ckd_result["image_url"]
+                                          )
+        # 捕获 payload/ckd_result 缺少 key 的错误
+        except KeyError as e:
+            print(f"错误：缺少必要的字段 -> {str(e)}")
+            # 你可以在这里返回错误响应、记录日志等
 
+        # 捕获数据库操作异常（如果使用SQLAlchemy）
+        except SQLAlchemyError as e:
+            print(f"数据库操作失败：{str(e)}")
+
+        # 捕获函数内部抛出的所有其他异常
+        except Exception as e:
+            print(f"创建CKD预测记录失败：{str(e)}")
 
         return ckd_result
 

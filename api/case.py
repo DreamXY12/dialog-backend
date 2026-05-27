@@ -5,8 +5,8 @@ from fastapi import Body, Depends
 from typing import List, Any
 
 from schema.case import UploadBody, DashboardItem, MarginResponse, MarginRequest, HistoryResponse, DenseResponse
-from core.risk_engine import RiskEngine
-from core.margin import Margin
+#from core.risk_engine import RiskEngine
+#from core.margin import Margin
 from sql.people_models import Case
 from sql.start import get_db
 from sql.crud import create_case, get_latest_case, get_cases_by_user, get_case_by_id
@@ -414,123 +414,123 @@ def upload(
 
 	return {"user_id": user_id, "case_id": db_case.case_id}
 
-@router.post("/analysis")
-def analysis(
-	upload_body: Annotated[UploadBody, Body],
-	user: Annotated[Any, Depends(get_current_user)],
-	db: Annotated[Connection, Depends(get_db)]
-):
-	# 根据用户类型获取用户ID
-	if hasattr(user, 'user_id'):
-		user_id = user.user_id
-	elif hasattr(user, 'patient_id'):
-		user_id = user.patient_id
-	elif hasattr(user, 'nurse_id'):
-		user_id = user.nurse_id
-	else:
-		raise HTTPException(status_code=400, detail="Invalid user type")
+# @router.post("/analysis")
+# def analysis(
+# 	upload_body: Annotated[UploadBody, Body],
+# 	user: Annotated[Any, Depends(get_current_user)],
+# 	db: Annotated[Connection, Depends(get_db)]
+# ):
+# 	# 根据用户类型获取用户ID
+# 	if hasattr(user, 'user_id'):
+# 		user_id = user.user_id
+# 	elif hasattr(user, 'patient_id'):
+# 		user_id = user.patient_id
+# 	elif hasattr(user, 'nurse_id'):
+# 		user_id = user.nurse_id
+# 	else:
+# 		raise HTTPException(status_code=400, detail="Invalid user type")
+#
+# 	# 创建临时Case对象用于分析
+# 	from datetime import datetime
+# 	upload_data = upload_body.dict()
+# 	if upload_data.get('test_date'):
+# 		upload_data['test_date'] = datetime.strptime(upload_data['test_date'], '%Y-%m-%d').date()
+# 	else:
+# 		upload_data['test_date'] = datetime.now().date()
+# 	temp_case = Case(**upload_data, user_id=user_id)
+#
+# 	# 进行风险分析
+# 	#re = RiskEngine(case=temp_case)
+# 	#result, score = re()
+#
+# 	# 确定风险等级
+# 	risk_level = "低风险"
+# 	if score >= RISK_THRESHOLD[temp_case.time_spec][1]:
+# 		risk_level = "高风险"
+# 	elif score >= RISK_THRESHOLD[temp_case.time_spec][0]:
+# 		risk_level = "中风险"
+#
+# 	# ========== 新增：计算人群排名 ==========
+# 	population_percentile, population_desc = simulate_population_ranking(score, temp_case.time_spec)
+#
+# 	# 保存分析结果到数据库
+# 	# 查找最近上传的case
+# 	latest_case = get_latest_case(db, user_id)
+# 	if latest_case:
+# 		# 更新分析结果
+# 		latest_case.analysis_result = result
+# 		latest_case.score = score
+# 		try:
+# 			db.commit()
+# 		except Exception as e:
+# 			db.rollback()
+# 			print(f"保存分析结果失败: {e}")
+#
+# 	return {
+# 		"riskLevel": risk_level,
+# 		"riskScore": score,
+# 		"result": risk_map.get(result, 3),
+# 		"populationPercentile": population_percentile,  # 排名百分比（如15.2表示前15.2%）
+# 		"populationDescription": population_desc,  # 人群位置说明
+# 		"timeSpec": temp_case.time_spec  # 预测时间跨度（用于前端显示）
+# 	}
 
-	# 创建临时Case对象用于分析
-	from datetime import datetime
-	upload_data = upload_body.dict()
-	if upload_data.get('test_date'):
-		upload_data['test_date'] = datetime.strptime(upload_data['test_date'], '%Y-%m-%d').date()
-	else:
-		upload_data['test_date'] = datetime.now().date()
-	temp_case = Case(**upload_data, user_id=user_id)
-
-	# 进行风险分析
-	re = RiskEngine(case=temp_case)
-	result, score = re()
-
-	# 确定风险等级
-	risk_level = "低风险"
-	if score >= RISK_THRESHOLD[temp_case.time_spec][1]:
-		risk_level = "高风险"
-	elif score >= RISK_THRESHOLD[temp_case.time_spec][0]:
-		risk_level = "中风险"
-
-	# ========== 新增：计算人群排名 ==========
-	population_percentile, population_desc = simulate_population_ranking(score, temp_case.time_spec)
-
-	# 保存分析结果到数据库
-	# 查找最近上传的case
-	latest_case = get_latest_case(db, user_id)
-	if latest_case:
-		# 更新分析结果
-		latest_case.analysis_result = result
-		latest_case.score = score
-		try:
-			db.commit()
-		except Exception as e:
-			db.rollback()
-			print(f"保存分析结果失败: {e}")
-
-	return {
-		"riskLevel": risk_level,
-		"riskScore": score,
-		"result": risk_map.get(result, 3),
-		"populationPercentile": population_percentile,  # 排名百分比（如15.2表示前15.2%）
-		"populationDescription": population_desc,  # 人群位置说明
-		"timeSpec": temp_case.time_spec  # 预测时间跨度（用于前端显示）
-	}
-
-@router.get("/analysis")
-def analysis_by_case_id(
-	case_id: Annotated[int, Query()],
-	user: Annotated[Any, Depends(get_current_user)],
-	db: Annotated[Connection, Depends(get_db)]
-):
-	# 根据用户类型获取用户ID
-	if hasattr(user, 'user_id'):
-		user_id = user.user_id
-	elif hasattr(user, 'patient_id'):
-		user_id = user.patient_id
-	elif hasattr(user, 'nurse_id'):
-		user_id = user.nurse_id
-	else:
-		raise HTTPException(status_code=400, detail="Invalid user type")
-
-	# 根据case_id获取case
-	case = get_case_by_id(db, case_id)
-	if not case:
-		raise HTTPException(status_code=404, detail="Case not found")
-
-	# 验证case属于当前用户
-	if case.user_id != user_id:
-		raise HTTPException(status_code=403, detail="Access denied")
-
-	# 进行风险分析
-	re = RiskEngine(case=case)
-	result, score = re()
-
-	# 确定风险等级
-	risk_level = "低风险"
-	if score >= RISK_THRESHOLD[case.time_spec][1]:
-		risk_level = "高风险"
-	elif score >= RISK_THRESHOLD[case.time_spec][0]:
-		risk_level = "中风险"
-
-	# ========== 计算人群排名 ==========
-	population_percentile, population_desc = simulate_population_ranking(score, case.time_spec)
-
-	# 保存分析结果到数据库
-	case.analysis_result = result
-	case.score = score
-	try:
-		db.commit()
-	except Exception as e:
-		db.rollback()
-		print(f"保存分析结果失败: {e}")
-
-	return {
-		"result": result,
-		"riskLevel": risk_level,
-		"riskScore": score,
-		"populationPercentile": population_percentile,
-		"populationDescription": population_desc,
-		"timeSpec": case.time_spec
-	}
+# @router.get("/analysis")
+# def analysis_by_case_id(
+# 	case_id: Annotated[int, Query()],
+# 	user: Annotated[Any, Depends(get_current_user)],
+# 	db: Annotated[Connection, Depends(get_db)]
+# ):
+# 	# 根据用户类型获取用户ID
+# 	if hasattr(user, 'user_id'):
+# 		user_id = user.user_id
+# 	elif hasattr(user, 'patient_id'):
+# 		user_id = user.patient_id
+# 	elif hasattr(user, 'nurse_id'):
+# 		user_id = user.nurse_id
+# 	else:
+# 		raise HTTPException(status_code=400, detail="Invalid user type")
+#
+# 	# 根据case_id获取case
+# 	case = get_case_by_id(db, case_id)
+# 	if not case:
+# 		raise HTTPException(status_code=404, detail="Case not found")
+#
+# 	# 验证case属于当前用户
+# 	if case.user_id != user_id:
+# 		raise HTTPException(status_code=403, detail="Access denied")
+#
+# 	# 进行风险分析
+# 	re = RiskEngine(case=case)
+# 	result, score = re()
+#
+# 	# 确定风险等级
+# 	risk_level = "低风险"
+# 	if score >= RISK_THRESHOLD[case.time_spec][1]:
+# 		risk_level = "高风险"
+# 	elif score >= RISK_THRESHOLD[case.time_spec][0]:
+# 		risk_level = "中风险"
+#
+# 	# ========== 计算人群排名 ==========
+# 	population_percentile, population_desc = simulate_population_ranking(score, case.time_spec)
+#
+# 	# 保存分析结果到数据库
+# 	case.analysis_result = result
+# 	case.score = score
+# 	try:
+# 		db.commit()
+# 	except Exception as e:
+# 		db.rollback()
+# 		print(f"保存分析结果失败: {e}")
+#
+# 	return {
+# 		"result": result,
+# 		"riskLevel": risk_level,
+# 		"riskScore": score,
+# 		"populationPercentile": population_percentile,
+# 		"populationDescription": population_desc,
+# 		"timeSpec": case.time_spec
+# 	}
 
 @router.get("/item", response_model=List[DashboardItem])
 def get_list(
@@ -580,19 +580,19 @@ def get_dense(
 	exceeded = greater / total
 	return DenseResponse(dense=DENSE[case.time_spec], score=case.score, exceeded_portion=exceeded, threshold=RISK_THRESHOLD[case.time_spec])
 
-@router.post("/margin", response_model=MarginResponse, summary="deprecated, do not use this api for now")
-def get_margin(
-	user: Annotated[Any, Depends(get_current_user)],
-	db: Annotated[Connection, Depends(get_db)],
-	rq: MarginRequest
-):
-	case: Case = get_case_by_id(db, rq.case_id)
-	mr = {}
-	step = rq.step
-	margin = Margin(case,step=rq.step)
-	for s in step.dict().keys():
-		mr[s] = margin.get_margin(s)
-	return mr
+# @router.post("/margin", response_model=MarginResponse, summary="deprecated, do not use this api for now")
+# def get_margin(
+# 	user: Annotated[Any, Depends(get_current_user)],
+# 	db: Annotated[Connection, Depends(get_db)],
+# 	rq: MarginRequest
+# ):
+# 	case: Case = get_case_by_id(db, rq.case_id)
+# 	mr = {}
+# 	step = rq.step
+# 	margin = Margin(case,step=rq.step)
+# 	for s in step.dict().keys():
+# 		mr[s] = margin.get_margin(s)
+# 	return mr
 
 @router.post("/history", response_model=List[HistoryResponse])
 def get_history(
