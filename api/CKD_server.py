@@ -55,13 +55,13 @@ dialog_ai_url="https://agent.dialog.polyusn.com"
 # ==========================
 # 1. 生成 S3 预签名 URL（自动用你本地 AWS 配置）
 # ==========================
-def generate_s3_presigned_url(bucket: str, key: str, expires_in: int = 3600):
+def generate_s3_presigned_url(bucket: str, key: str, expires_in: int = 3600*24):
     try:
         s3 = boto3.client("s3", region_name="ap-southeast-1")
         return s3.generate_presigned_url(
             ClientMethod="get_object",
             Params={"Bucket": bucket, "Key": key},
-            ExpiresIn=expires_in,
+            ExpiresIn=expires_in,# 24小时有效
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"S3签名失败：{str(e)}")
