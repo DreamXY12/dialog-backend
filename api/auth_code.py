@@ -10,7 +10,8 @@ from sql.start import get_db
 from sql.common_curd import get_user_by_phone
 from api.register import CommonTokenResponse
 from utility.fun_tool import create_access_token, decode_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from sql.nurse_curd import add_nurse_work_time
+from sql.nurse_curd import add_nurse_work_time,get_nurse_by_id
+from sql.patient_curd import get_patient_by_id
 
 # 登录码模型 + 加密
 from sql.people_models import PatientLoginCode, NurseLoginCode
@@ -92,7 +93,7 @@ async def login(
         if not authenticate_user_login_code(db, user_id, request.user_type, request.login_code):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="登录码错误或已被禁用"
+                detail="登錄碼錯誤"
             )
 
         # 4. 生成 Token
