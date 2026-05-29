@@ -1,10 +1,10 @@
 *.ipynb
-*config.yaml
 checkpoint/*
 .idea*
 *__pycache__*
 # Python virtual environment
 venv/
+api/resource/
 
 # Python cache
 __pycache__/
