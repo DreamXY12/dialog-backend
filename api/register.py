@@ -17,6 +17,9 @@ from sql.people_models import Nurse, Patient  # 导入护士/患者模型
 from utility.fun_tool import create_access_token  # JWT生成函数
 from sql.verify_code_curd import verify_verification_code  # 验证码验证函数
 
+import pytz
+tz = pytz.timezone("Asia/Hong_Kong")
+
 # 统一路由（可拆分前缀，也可共用根路由）
 router = APIRouter(tags=["auth/register"])  # 统一标签，便于文档区分
 
@@ -85,8 +88,8 @@ def create_patient_record(
         first_name=first_name,
         last_name=last_name,
         assigned_nurse_id=assigned_nurse_id,
-        create_time=datetime.now(),
-        update_time=datetime.now()
+        create_time=datetime.now(tz=tz),
+        update_time=datetime.now(tz=tz)
     )
     db.add(new_patient)
     db.commit()
@@ -120,8 +123,8 @@ def create_nurse_record(
         phone_area_code=phone_area_code,
         first_name=first_name,
         last_name=last_name,
-        create_time=datetime.now(),
-        update_time=datetime.now()
+        create_time=datetime.now(tz=tz),
+        update_time=datetime.now(tz=tz)
     )
     db.add(new_nurse)
     db.commit()

@@ -5,6 +5,9 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from typing import Optional, Tuple
 
+import pytz
+tz = pytz.timezone("Asia/Hong_Kong")
+
 # 导入你的验证码模型（确保路径正确）
 from sql.people_models import SmsVerificationCode
 # 导入枚举类（如果用了的话，也可以直接用字符串）
@@ -92,7 +95,7 @@ def verify_verification_code(
             return False
 
         # 校验2：验证码是否过期
-        if datetime.now() > verification_code.expire_at:
+        if datetime.now(tz=tz) > verification_code.expire_at:
             if raise_exception:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -113,7 +116,7 @@ def verify_verification_code(
         # 4. 验证通过：标记为已使用
         # --------------------------
         verification_code.is_used = True
-        verification_code.used_at = datetime.now()  # 记录使用时间
+        verification_code.used_at = datetime.now(tz=tz)  # 记录使用时间
         db.commit()
         db.refresh(verification_code)  # 可选：刷新记录
 

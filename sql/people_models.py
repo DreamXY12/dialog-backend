@@ -5,6 +5,9 @@ from sqlalchemy import Boolean,Text,Time,text,BigInteger,TIMESTAMP,Column
 import datetime
 from datetime import datetime,date
 
+import pytz
+tz = pytz.timezone("Asia/Hong_Kong")
+
 # 基础导入（确保环境安装：pip install sqlalchemy>=2.0 python-dotenv）
 import enum
 from typing import List, Optional
@@ -482,7 +485,7 @@ class SmsVerificationCode(Base):
     @property
     def is_expired(self) -> bool:
         """判断验证码是否过期"""
-        return datetime.datetime.now() > self.expire_at
+        return datetime.datetime.now(tz=tz) > self.expire_at
 
 # class BloodGlucoseRecord(Base):
 #     """血糖记录模型"""
@@ -811,7 +814,7 @@ class NurseWorkShift(TimeStampMixIn, Base):
     def is_working_hours(self) -> bool:
         """当前时间是否在工作时间段内"""
         from datetime import datetime
-        now = datetime.now()
+        now = datetime.now(tz=tz)
         current_time = now.time()
         return self.work_start_time <= current_time <= self.work_end_time
 
@@ -819,7 +822,7 @@ class NurseWorkShift(TimeStampMixIn, Base):
     def is_today(self) -> bool:
         """是否是今天的班次"""
         from datetime import datetime
-        today = datetime.now().date()
+        today = datetime.now(tz=tz).date()
         return self.work_date == today
 
     @property

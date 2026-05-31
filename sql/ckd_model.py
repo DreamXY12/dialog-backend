@@ -5,6 +5,9 @@ from sql.people_models import TimeStampMixIn
 from datetime import datetime,date
 from typing import Optional
 
+import pytz
+tz = pytz.timezone("Asia/Hong_Kong")
+
 Base = declarative_base()
 
 # ====================== CKD 预测主表（已加 user_id） ======================
@@ -53,8 +56,8 @@ class CkdPredictionRecord(Base):
     risk_5y_percent = Column(Float, comment="5年风险百分比")
 
     # 时间
-    create_time = Column(DateTime, default=datetime.now, comment="创建时间")
-    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment="更新时间")
+    create_time = Column(DateTime, default=datetime.now(tz=tz), comment="创建时间")
+    update_time = Column(DateTime, default=datetime.now(tz=tz), onupdate=datetime.now(tz=tz), comment="更新时间")
 
     # 关联文件表
     file_info = relationship("CkdPredictionFile", back_populates="prediction", uselist=False)

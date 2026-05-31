@@ -11,7 +11,8 @@ from sql.people_models import (
     Patient, Nurse, NurseWorkShift
 )
 from sql.people_models import SessionStatus, SessionType,RoomStatus
-
+import pytz
+tz = pytz.timezone("Asia/Hong_Kong")
 
 # 在 sql_curd.py 文件中添加以下函数
 def is_nurse_in_working_hours(
@@ -31,7 +32,7 @@ def is_nurse_in_working_hours(
     try:
         from datetime import datetime, date, time
 
-        now = datetime.now()
+        now = datetime.now(tz=tz)
         today = now.date()
         current_time = now.time()
 
@@ -105,10 +106,10 @@ def get_or_create_patient_chat_room(
                 is_help_active=False, # 创建时默认没有人工求助
                 sos_create_time=None,  # SOS时间为空
                 help_create_time=None, # 普通人工请求
-                last_sync_mode_time=datetime.now(),  # 模式同步时间
+                last_sync_mode_time=datetime.now(tz=tz),  # 模式同步时间
                 nurse_is_read=False,  # 护士未读
-                last_activity_time=datetime.now(),
-                create_time=datetime.now()
+                last_activity_time=datetime.now(tz=tz),
+                create_time=datetime.now(tz=tz)
             )
             db.add(chat_room)
             db.commit()
@@ -330,7 +331,7 @@ def get_or_create_message(
             content=content,
             chat_mode=chat_mode,
             # patient_read / nurse_read 默认 False，无需显式设置
-            create_time=datetime.now()
+            create_time=datetime.now(tz=tz)
         )
         db.add(message)
 
@@ -341,10 +342,10 @@ def get_or_create_message(
             ).first()
             if session:
                 session.message_count += 1
-                session.last_message_time = datetime.now()
+                session.last_message_time = datetime.now(tz=tz)
 
         if chat_room:
-            chat_room.last_activity_time = datetime.now()
+            chat_room.last_activity_time = datetime.now(tz=tz)
 
         db.commit()
 
@@ -618,7 +619,7 @@ def update_chat_room_sos_status(
 
         # 开启SOS时记录发起时间，关闭时清空
         if is_sos_active:
-            chat_room.sos_create_time = datetime.now()
+            chat_room.sos_create_time = datetime.now(tz=tz)
         else:
             chat_room.sos_create_time = None
 
@@ -658,7 +659,7 @@ def update_chat_room_mode(
 
         # 更新模式 + 同步时间
         chat_room.current_chat_mode = chat_mode
-        chat_room.last_sync_mode_time = datetime.now()
+        chat_room.last_sync_mode_time = datetime.now(tz=tz)
 
         db.commit()
         db.refresh(chat_room)
@@ -691,7 +692,7 @@ def update_chat_room_help_status(
 
         # 开启时写入时间，关闭时清空
         if is_help_active:
-            chat_room.help_create_time = datetime.now()
+            chat_room.help_create_time = datetime.now(tz=tz)
         else:
             chat_room.help_create_time = None
 

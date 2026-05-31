@@ -16,6 +16,9 @@ from core.auth import get_current_user
 import random
 from typing import Tuple
 
+import pytz
+tz = pytz.timezone("Asia/Hong_Kong")
+
 router = APIRouter(prefix='/case', tags=["case"])
 
 risk_map = {
@@ -408,7 +411,7 @@ def upload(
 	if upload_data.get('test_date'):
 		upload_data['test_date'] = datetime.strptime(upload_data['test_date'], '%Y-%m-%d').date()
 	else:
-		upload_data['test_date'] = datetime.now().date()
+		upload_data['test_date'] = datetime.now(tz=tz).date()
 	db_case = Case(**upload_data, user_id=user_id)
 	db_case = create_case(db, db_case)
 

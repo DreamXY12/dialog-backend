@@ -8,14 +8,15 @@ import datetime
 from sqlalchemy.dialects.mysql import JSON
 from datetime import date, datetime
 from sqlalchemy.types import Date as SqlDate  # 关键！区分开 SQL 的 Date 和 Python 的 date
-
+import pytz
+tz = pytz.timezone("Asia/Hong_Kong")
 
 class TimeStampMixIn(object):
     '''
     create time and update time mix in.
     '''
-    create_time = mapped_column(DateTime(timezone=True), server_default=func.now())
-    update_time = mapped_column(DateTime(timezone=True), onupdate=func.now())
+    create_time = mapped_column(DateTime(timezone=True), server_default=func.now(tz=tz))
+    update_time = mapped_column(DateTime(timezone=True), onupdate=func.now(tz=tz))
 
 
 class Gender(enum.Enum):
@@ -136,7 +137,7 @@ class Patient(TimeStampMixIn, Base):
     def age(self):
         """✅ 现在不会报错了！"""
         if self.date_of_birth:
-            today = datetime.now().date()
+            today = datetime.now(tz=tz).date()
             age = today.year - self.date_of_birth.year
             if (today.month, today.day) < (self.date_of_birth.month, self.date_of_birth.day):
                 age -= 1

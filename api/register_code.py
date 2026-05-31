@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel, Field
+import pytz
+tz = pytz.timezone("Asia/Hong_Kong")
 
 # 你原有的配置
 ACCESS_TOKEN_EXPIRE_DAYS = 3
@@ -106,8 +108,8 @@ def create_patient_record(db: Session, phone: str, first_name: str, last_name: s
         first_name=first_name,
         last_name=last_name,
         assigned_nurse_id=assigned_nurse_id,
-        create_time=datetime.now(),
-        update_time=datetime.now()
+        create_time=datetime.now(tz),
+        update_time=datetime.now(tz)
     )
     db.add(new_patient)
     db.commit()
@@ -123,8 +125,8 @@ def create_nurse_record(db: Session, phone: str, first_name: str, last_name: str
         phone_area_code=phone_area_code,
         first_name=first_name,
         last_name=last_name,
-        create_time=datetime.now(),
-        update_time=datetime.now()
+        create_time=datetime.now(tz=tz),
+        update_time=datetime.now(tz=tz)
     )
     db.add(new_nurse)
     db.commit()

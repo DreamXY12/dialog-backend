@@ -27,6 +27,8 @@ from sql.chat_histoty_curd import (
     update_chat_room_sos_status,
 update_chat_room_help_status
 )
+import pytz
+tz = pytz.timezone("Asia/Hong_Kong")
 
 router = APIRouter(tags=["chat-history"])
 
@@ -60,7 +62,7 @@ def is_nurse_in_working_hours(nurse_id: int, db: Session) -> bool:
     if not shift:
         return False
 
-    now = datetime.now().time()
+    now = datetime.now(tz=tz).time()
     return shift.work_start_time <= now <= shift.work_end_time
 
 
@@ -150,7 +152,7 @@ async def get_session_messages(
 
         # 如果设置了天数限制，只获取指定天数内的消息
         if days_limit > 0:
-            cutoff_date = datetime.now() - timedelta(days=days_limit)
+            cutoff_date = datetime.now(tz=tz) - timedelta(days=days_limit)
             query = query.filter(Message.create_time >= cutoff_date)
 
         # 计算总数
@@ -242,7 +244,7 @@ async def mark_message_as_read(
             "message": "消息已标记为已读",
             "message_uuid": message_uuid,
             "reader_role": reader_role,
-            "read_time": datetime.now().isoformat()  # 可选择记录时间，但表内无持久化字段，这里仅返回临时时间
+            "read_time": datetime.now(tz=tz).isoformat()  # 可选择记录时间，但表内无持久化字段，这里仅返回临时时间
         }
 
     except HTTPException:
@@ -477,7 +479,7 @@ async def end_session(
 
         # 更新会话状态
         session.session_status = SessionStatus.COMPLETED
-        session.end_time = datetime.utcnow()
+        session.end_time = datetime.now(tz=tz)
         session.auto_end_reason = reason
 
         # 如果关联了护士班次，更新班次统计
@@ -530,7 +532,7 @@ async def get_nurse_current_shift(
                 "message": "今天没有排班"
             }
 
-        now = datetime.now().time()
+        now = datetime.now(tz=tz).time()
         is_working = shift.work_start_time <= now <= shift.work_end_time
 
         return {
@@ -625,7 +627,7 @@ async def end_expired_sessions(db: Session = Depends(get_db)):
     - 昨天的活跃会话
     """
     try:
-        now = datetime.utcnow()
+        now = datetime.now(tz=tz)
         results = {
             "timeout_sessions": 0,
             "yesterday_sessions": 0,
@@ -725,7 +727,7 @@ async def get_room_all_messages(
 
         # 3. 天数限制
         if days_limit > 0:
-            cutoff_date = datetime.now() - timedelta(days=days_limit)
+            cutoff_date = datetime.now(tz=tz) - timedelta(days=days_limit)
             query = query.filter(Message.create_time >= cutoff_date)
 
         total_count = query.count()

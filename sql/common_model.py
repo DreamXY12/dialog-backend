@@ -3,6 +3,8 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime
 from datetime import datetime
 from sql.start import Base
+import pytz
+tz = pytz.timezone("Asia/Hong_Kong")
 
 # 病人和护士共用的反馈数据库
 class Feedback(Base):
@@ -21,4 +23,4 @@ class Feedback(Base):
 
     ai_context = Column(Text, nullable=True)
 
-    create_time = Column(DateTime, default=datetime.utcnow)
+    create_time = Column(DateTime, default=datetime.now(tz=tz))

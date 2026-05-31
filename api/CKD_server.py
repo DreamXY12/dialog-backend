@@ -1,6 +1,4 @@
 # 忽略 SSL 不安全警告（测试环境专用）
-import datetime
-
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from fastapi import HTTPException

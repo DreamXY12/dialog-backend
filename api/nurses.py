@@ -325,8 +325,8 @@ def get_nurse_today_work_time(nurse_id: int, db: Session = Depends(get_db)):
         # ==============================================
         # ✅ 核心修复：强制用新加坡时区，不受系统影响
         # ==============================================
-        sg_tz = pytz.timezone("Asia/Singapore")
-        now = datetime.now(sg_tz)  # 拿到新加坡当前时间
+        hk_tz = pytz.timezone("Asia/Hong_Kong")
+        now = datetime.now(hk_tz)  # 拿到新加坡当前时间
         current_time = now.time()
 
         # 3. 核心判断：当前时间是否在护士工作时间区间内

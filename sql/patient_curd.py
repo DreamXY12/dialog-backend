@@ -11,6 +11,9 @@ from sqlalchemy import text
 import logging
 import json
 
+import pytz
+tz = pytz.timezone("Asia/Hong_Kong")
+
 logger = logging.getLogger(__name__)
 
 
@@ -128,10 +131,10 @@ def create_ai_dialog(
             patient_phone=patient_phone,
             session_key=session_key,
             ai_model=ai_model or "default",  # 默认值
-            title=title or f"与AI的对话 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            title=title or f"与AI的对话 {datetime.now(tz=tz).strftime('%Y-%m-%d %H:%M')}",
             prompts=prompts,
             message_count=message_count,
-            last_message_time=datetime.now()  # 设置最后消息时间为当前时间
+            last_message_time=datetime.now(tz=tz)  # 设置最后消息时间为当前时间
         )
 
         db.add(new_dialog)
@@ -168,7 +171,7 @@ def get_or_create_ai_dialog(
             'messages': [{
                 'role': 'user',
                 'content': initial_message,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(tz=tz).isoformat()
             }]
         }
 
@@ -178,7 +181,7 @@ def get_or_create_ai_dialog(
         session_key=session_key,
         prompts=prompts,
         ai_model=ai_model,
-        title=f"对话 {datetime.now().strftime('%m-%d %H:%M')}"
+        title=f"对话 {datetime.now(tz=tz).strftime('%m-%d %H:%M')}"
     )
 
 def get_ai_dialogs_by_patient_and_date_range(
@@ -320,7 +323,7 @@ def update_ai_dialog_with_message(
         messages.append({
             'role': 'user',
             'content': user_message,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now(tz=tz).isoformat()
         })
 
         # 添加AI回复
@@ -329,13 +332,13 @@ def update_ai_dialog_with_message(
             'role': 'assistant',
             'content': ai_response,
             'model': ai_model or dialog.ai_model or "default",
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now(tz=tz).isoformat()
         })
 
         # 更新对话记录
         dialog.prompts = prompts
         dialog.message_count = len(messages)
-        dialog.last_message_time = datetime.now()
+        dialog.last_message_time = datetime.now(tz=tz)
 
         print(f"DEBUG: After update - message_count: {dialog.message_count}")
 
@@ -400,14 +403,14 @@ def update_ai_dialog_with_message_simple(
         prompts['messages'].append({
             'role': 'user',
             'content': user_message,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now(tz=tz).isoformat()
         })
 
         prompts['messages'].append({
             'role': 'assistant',
             'content': ai_response,
             'model': ai_model or dialog.ai_model or "default",
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now(tz=tz).isoformat()
         })
 
         # 打印验证
@@ -417,7 +420,7 @@ def update_ai_dialog_with_message_simple(
         # 更新对象
         dialog.prompts = prompts
         dialog.message_count = len(prompts['messages'])
-        dialog.last_message_time = datetime.now()
+        dialog.last_message_time = datetime.now(tz=tz)
 
         # 尝试直接赋值，看看SQLAlchemy是否检测到变化
         from sqlalchemy import inspect
