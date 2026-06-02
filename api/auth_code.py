@@ -13,9 +13,8 @@ from utility.fun_tool import create_access_token, decode_token, ACCESS_TOKEN_EXP
 from sql.nurse_curd import add_nurse_work_time,get_nurse_by_id
 from sql.patient_curd import get_patient_by_id
 
-# 登录码模型 + 加密
+# 登录码模型
 from sql.people_models import PatientLoginCode, NurseLoginCode
-import bcrypt
 
 # ---------------------------
 # 配置
@@ -24,31 +23,24 @@ router = APIRouter(prefix="/auth-code", tags=["authentication-4code"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth-code/login")
 
 # ---------------------------
-# 登录请求体
+# 登录请求体（移除长度限制）
 # ---------------------------
 class LoginRequest(BaseModel):
-    phone: str = Field(..., description="带区号的手机号，如+85212345678")
-    phone_area_code: Optional[str] = Field(None, description="手机号区号，如+852/+86")
-    login_code: str = Field(..., min_length=4, max_length=4, description="4位数字登录码")
-    user_type: str = Field(..., pattern="^(patient|nurse)$", description="用户类型：patient/nurse")
+    phone: str = Field(..., description="帶區號的手機號，如+85212345678")
+    phone_area_code: Optional[str] = Field(None, description="手機號區號，如+852/+86")
+    login_code: str = Field(..., description="登入密碼")  # 移除 min_length / max_length
+    user_type: str = Field(..., pattern="^(patient|nurse)$", description="使用者類型：patient/nurse")
 
 # ---------------------------
-# 登录码验证工具函数
+# 登录码验证工具函数（明文对比）
 # ---------------------------
-def verify_code(plain_code: str, hashed_code: str) -> bool:
-    """验证 4 位登录码是否正确（明文 vs 哈希）"""
-    try:
-        return bcrypt.checkpw(plain_code.encode("utf-8"), hashed_code.encode("utf-8"))
-    except Exception:
-        return False
-
 def authenticate_user_login_code(
     db: Session,
     user_id: int,
     user_type: str,
     plain_login_code: str
 ) -> bool:
-    """验证用户登录码是否正确"""
+    """驗證使用者登入密碼是否正確（明文直接比對）"""
     try:
         if user_type == "patient":
             record = db.query(PatientLoginCode).filter(
@@ -64,7 +56,8 @@ def authenticate_user_login_code(
         if not record:
             return False
 
-        return verify_code(plain_login_code, record.login_code_hash)
+        # 直接明文比對
+        return record.login_code_hash == plain_login_code
     except Exception:
         return False
 
@@ -76,24 +69,24 @@ async def login(
     request: LoginRequest,
     db: Session = Depends(get_db)
 ):
-    """用户登录（手机号 + 4位永久登录码）"""
+    """使用者登入（手機號 + 登入密碼）"""
     try:
-        # 1. 查询用户是否存在
+        # 1. 查詢使用者是否存在
         user = get_user_by_phone(db, request.phone, request.user_type)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"{request.user_type} 用户不存在，请先注册"
+                detail=f"{request.user_type} 使用者不存在，請先註冊"
             )
 
-        # 2. 获取用户ID
+        # 2. 獲取使用者ID
         user_id = user.patient_id if request.user_type == "patient" else user.nurse_id
 
-        # 3. 验证登录码
+        # 3. 驗證登入密碼
         if not authenticate_user_login_code(db, user_id, request.user_type, request.login_code):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="登錄碼錯誤"
+                detail="登入密碼錯誤"
             )
 
         # 4. 生成 Token
@@ -108,7 +101,7 @@ async def login(
             expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         )
 
-        # 5. 护士登录 → 自动创建排班
+        # 5. 護士登入 → 自動創建排班
         if request.user_type == "nurse":
             work_start = time(hour=9, minute=0, second=0)
             work_end = time(hour=18, minute=0, second=0)
@@ -131,11 +124,11 @@ async def login(
     except HTTPException:
         raise
     except Exception as e:
-        # 仅业务异常回滚，查询异常无需回滚
+        # 僅業務異常回滾，查詢異常無需回滾
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"登录失败: {str(e)}"
+            detail=f"登入失敗: {str(e)}"
         )
 
 # ---------------------------
@@ -147,7 +140,7 @@ async def verify_token(token: str = Depends(oauth2_scheme)):
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="无效的令牌"
+            detail="無效的令牌"
         )
 
     return {
@@ -160,4 +153,4 @@ async def verify_token(token: str = Depends(oauth2_scheme)):
 
 @router.get("/login1")
 async def login1():
-    return {"message": "4位码登录测试链接正常"}
+    return {"message": "登入密碼測試連結正常"}

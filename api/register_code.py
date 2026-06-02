@@ -15,29 +15,28 @@ ACCESS_TOKEN_EXPIRE_MINUTES = ACCESS_TOKEN_EXPIRE_DAYS * 24 * 60
 from sql.start import get_db
 from sql.people_models import Nurse, Patient, PatientLoginCode, NurseLoginCode
 from utility.fun_tool import create_access_token
-import bcrypt
 
 # 路由
 router = APIRouter(tags=["auth/register-4code"])
 
 # ---------------------------
-# 1. 请求体：增加 login_code（前端传入）
+# 1. 請求體：移除長度限制 + 繁體描述
 # ---------------------------
 class BaseRegisterRequest(BaseModel):
-    phone: str = Field(..., description="带区号的手机号")
-    login_code: str = Field(..., min_length=4, max_length=4, description="4位数字登录码")  # 新增
+    phone: str = Field(..., description="帶區號的手機號")
+    login_code: str = Field(..., description="登入密碼")  # 已移除長度限制
     first_name: str = Field(..., description="姓氏")
     last_name: str = Field(..., description="名字")
-    phone_area_code: Optional[str] = Field(None, description="手机号区号")
+    phone_area_code: Optional[str] = Field(None, description="手機號區號")
 
 class PatientRegisterRequest(BaseRegisterRequest):
-    assigned_nurse_id: Optional[int] = Field(None, description="负责护士ID")
+    assigned_nurse_id: Optional[int] = Field(None, description="負責護士ID")
 
 class NurseRegisterRequest(BaseRegisterRequest):
     pass
 
 # ---------------------------
-# 2. 响应模型（不变）
+# 2. 響應模型
 # ---------------------------
 class CommonTokenResponse(BaseModel):
     access_token: str
@@ -56,7 +55,7 @@ class CommonTokenResponse(BaseModel):
         from_attributes = True
 
 # ---------------------------
-# 3. 工具函数：验证登录码是否有效（未绑定）
+# 3. 工具函數：明文驗證（無加密）
 # ---------------------------
 def verify_plain_login_code(
     db: Session,
@@ -65,38 +64,37 @@ def verify_plain_login_code(
     role: str
 ):
     """
-    验证前端传入的4位登录码是否存在且未绑定用户
-    注册时必须校验！
+    驗證前端傳入的登入密碼是否存在且未綁定使用者
+    註冊時必須校驗！
     """
-    code_hash = bcrypt.hashpw(plain_code.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-    # 这里用查询已存在的hash
+    # 直接明文查詢，無加密
     if role == "patient":
         record = db.query(PatientLoginCode).filter(
-            PatientLoginCode.login_code_hash == code_hash,
-            PatientLoginCode.patient_id == None  # 未绑定用户
+            PatientLoginCode.login_code_hash == plain_code,
+            PatientLoginCode.patient_id == None
         ).first()
     else:
         record = db.query(NurseLoginCode).filter(
-            NurseLoginCode.login_code_hash == code_hash,
+            NurseLoginCode.login_code_hash == plain_code,
             NurseLoginCode.nurse_id == None
         ).first()
 
     if not record:
-        # 暴力匹配所有未绑定的码
+        # 遍歷未綁定的記錄，明文比對
         if role == "patient":
             all_records = db.query(PatientLoginCode).filter(PatientLoginCode.patient_id == None).all()
         else:
             all_records = db.query(NurseLoginCode).filter(NurseLoginCode.nurse_id == None).all()
 
         for r in all_records:
-            if bcrypt.checkpw(plain_code.encode(), r.login_code_hash.encode()):
+            if r.login_code_hash == plain_code:
                 return r
 
-        raise HTTPException(status_code=400, detail="登录码无效或已被使用")
+        raise HTTPException(status_code=400, detail="登入密碼無效或已被使用")
     return record
 
 # ---------------------------
-# 4. 原有创建用户函数（完全不变）
+# 4. 建立使用者函數
 # ---------------------------
 def create_patient_record(db: Session, phone: str, first_name: str, last_name: str, phone_area_code: Optional[str] = None, assigned_nurse_id: Optional[int] = None):
     existing = db.query(Patient).filter(Patient.phone == phone).first()
@@ -134,7 +132,7 @@ def create_nurse_record(db: Session, phone: str, first_name: str, last_name: str
     return new_nurse
 
 # ---------------------------
-# 6. 患者注册（仅绑定，不生成）
+# 6. 病患註冊
 # ---------------------------
 @router.post("/patients/register-by-code", response_model=CommonTokenResponse)
 async def register_patient(
@@ -142,12 +140,12 @@ async def register_patient(
     db: Session = Depends(get_db)
 ):
     try:
-        # 1. 校验手机号未注册
+        # 1. 校驗手機號未註冊
         existing = db.query(Patient).filter(Patient.phone == request.phone).first()
         if existing:
-            raise HTTPException(status_code=400, detail="手机号已注册")
+            raise HTTPException(status_code=400, detail="手機號已註冊")
 
-        # 2. 校验登录码有效且未绑定
+        # 2. 校驗登入密碼有效且未綁定
         code_record = verify_plain_login_code(
             db=db,
             phone=request.phone,
@@ -155,7 +153,7 @@ async def register_patient(
             role="patient"
         )
 
-        # 3. 创建患者
+        # 3. 建立病患
         patient = create_patient_record(
             db=db,
             phone=request.phone,
@@ -165,9 +163,9 @@ async def register_patient(
             assigned_nurse_id=request.assigned_nurse_id
         )
         if not patient:
-            raise HTTPException(status_code=400, detail="注册失败")
+            raise HTTPException(status_code=400, detail="註冊失敗")
 
-        # 4. 绑定登录码到患者（核心！）
+        # 4. 綁定登入密碼到病患
         code_record.patient_id = patient.patient_id
         db.commit()
 
@@ -197,10 +195,10 @@ async def register_patient(
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"注册失败：{str(e)}")
+        raise HTTPException(status_code=500, detail=f"註冊失敗：{str(e)}")
 
 # ---------------------------
-# 7. 护士注册（仅绑定，不生成）
+# 7. 護士註冊
 # ---------------------------
 @router.post("/nurses/register-by-code", response_model=CommonTokenResponse)
 async def register_nurse(
@@ -208,12 +206,12 @@ async def register_nurse(
     db: Session = Depends(get_db)
 ):
     try:
-        # 1. 校验手机号
+        # 1. 校驗手機號
         existing = db.query(Nurse).filter(Nurse.phone == request.phone).first()
         if existing:
-            raise HTTPException(status_code=400, detail="手机号已注册")
+            raise HTTPException(status_code=400, detail="手機號已註冊")
 
-        # 2. 校验登录码
+        # 2. 校驗登入密碼
         code_record = verify_plain_login_code(
             db=db,
             phone=request.phone,
@@ -221,7 +219,7 @@ async def register_nurse(
             role="nurse"
         )
 
-        # 3. 创建护士
+        # 3. 建立護士
         nurse = create_nurse_record(
             db=db,
             phone=request.phone,
@@ -230,9 +228,9 @@ async def register_nurse(
             phone_area_code=request.phone_area_code
         )
         if not nurse:
-            raise HTTPException(status_code=400, detail="注册失败")
+            raise HTTPException(status_code=400, detail="註冊失敗")
 
-        # 4. 绑定登录码
+        # 4. 綁定登入密碼
         code_record.nurse_id = nurse.nurse_id
         db.commit()
 
@@ -262,4 +260,4 @@ async def register_nurse(
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"注册失败：{str(e)}")
+        raise HTTPException(status_code=500, detail=f"註冊失敗：{str(e)}")
