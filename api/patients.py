@@ -30,7 +30,7 @@ class PatientWeightUpdate(BaseModel):
     weight: float = Field(..., gt=0, le=500, description="体重（公斤），范围0-500")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "weight": 65.5
             }
@@ -48,7 +48,7 @@ class FirstLoginUpdate(BaseModel):
     has_diabetes: str
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "height": 175.5,
                 "weight": 65.0,

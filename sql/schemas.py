@@ -245,7 +245,7 @@ class FirstLoginUpdate(BaseModel):
 
     class Config:
         use_enum_values = False
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "height": 170.5,
                 "weight": 65.2,
