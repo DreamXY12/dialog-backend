@@ -515,7 +515,7 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id,message_uuid=None,a
         # 2. 请求 AI Agent
         status, ai_data = await ai_public_chat(
             message=user_msg["content"],
-            session_id=ai_session_id,
+            session_id="",
             room_uuid=room_uuid
         )
         if status != 200:
