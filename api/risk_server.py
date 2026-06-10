@@ -17,6 +17,7 @@ from sql.risk_crud import (
     get_diabetes_by_date_range_paginated
 
 )
+from sql.patient_curd import get_patient_by_id
 from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -39,7 +40,7 @@ class LabData(BaseModel):
 
 class RiskPredictRequest(BaseModel):
     user_id: int
-    date_of_birth:str
+    date_of_birth:str|None
     lab_data: LabData
     time_spec: int
     labtest_date: str
@@ -53,7 +54,13 @@ async def ai_risk_predict(
     db: Annotated[Connection, Depends(get_db)]
 ):
     try:
-        payload = req.model_dump(exclude_none=True)
+        payload = req.model_dump(exclude_none=False)
+        if payload["date_of_birth"] is None:
+            patient = get_patient_by_id(db,payload["user_id"])
+            if patient:
+                payload["date_of_birth"]=str(patient.date_of_birth)
+            else:
+                payload["date_of_birth"]=""
         res = requests.post(
             url=f"{AI_BASE_URL}/ai/risk_predict",
             json=payload,

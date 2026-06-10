@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 # 通过序号找患者，因为在创建患者时就把信息塞到token里面去了
-def get_patient_by_id(db: Session, patient_id: int):
+def get_patient_by_id(db: Session, patient_id: int)->Patient|None:
     return db.query(Patient).filter(Patient.patient_id == patient_id).first()
 
 def get_patient_full_name(db: Session, patient_id: int) -> str|None:
