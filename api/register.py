@@ -55,6 +55,8 @@ class CommonTokenResponse(BaseModel):
     is_first_login: bool = True
     # 可选：扩展字段（按需添加）
     full_name: str = Field(None, description="完整姓名（姓+名）")
+    # 生日，病人需要
+    date_of_birth:str = Field(None,description="病人方需要的生日")
     class Config:
         from_attributes = True
 
@@ -190,7 +192,8 @@ async def register_patient(
             last_name=patient.last_name,
             phone=patient.phone,
             phone_area_code=patient.phone_area_code,
-            full_name=f"{patient.first_name}{patient.last_name}"  # 可选：拼接完整姓名
+            full_name=f"{patient.first_name}{patient.last_name}",  # 可选：拼接完整姓名
+            date_of_birth=str(patient.date_of_birth),
         )
 
     except HTTPException:
@@ -257,7 +260,8 @@ async def register_nurse(
             last_name=nurse.last_name,
             phone=nurse.phone,
             phone_area_code=nurse.phone_area_code,
-            full_name=f"{nurse.first_name}{nurse.last_name}"  # 可选：拼接完整姓名
+            full_name=f"{nurse.first_name}{nurse.last_name}",  # 可选：拼接完整姓名
+            date_of_birth=""
         )
 
     except HTTPException:

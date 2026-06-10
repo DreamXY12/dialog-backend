@@ -80,8 +80,10 @@ async def login(
             expires_delta=access_token_expires
         )
 
+        date_of_birth=""
         if request.user_type == "patient":
             request_user_id = int(user.patient_id)
+            date_of_birth=str(user.date_of_birth)
         else:
             request_user_id = int(user.nurse_id)
 
@@ -107,7 +109,8 @@ async def login(
             phone=request.phone,  # 替换原login_code字段
             phone_area_code=request.phone_area_code,
             is_first_login=False,  # 登录时标记为非首次
-            full_name=f"{user.first_name}{user.last_name}"
+            full_name=f"{user.first_name}{user.last_name}",
+            date_of_birth=str(date_of_birth),
         )
 
     except HTTPException:

@@ -46,6 +46,7 @@ class FirstLoginUpdate(BaseModel):
     smoking: Optional[str] = None
     drinking: Optional[str] = None
     has_diabetes: str
+    date_of_birth:date
 
     class Config:
         json_schema_extra = {
@@ -57,7 +58,8 @@ class FirstLoginUpdate(BaseModel):
                 "family_history": "No",
                 "smoking": "No",
                 "drinking": "Never",
-                "has_diabetes:":"No"
+                "has_diabetes:":"No",
+                "date_of_birth":"1970-01-01"
             }
         }
 
@@ -169,11 +171,12 @@ async def update_current_patient_first_login(
     update_dict["weight"] = float(update_data.weight)
 
     # 6. 年龄转出生日期
-    current_year = date.today().year
-    birth_year = current_year - update_data.age
-    if birth_year < 1900:
-        birth_year = 1900
-    update_dict["date_of_birth"] = date(birth_year, 1, 1)
+    # current_year = date.today().year
+    # birth_year = current_year - update_data.age
+    # if birth_year < 1900:
+    #     birth_year = 1900
+    # update_dict["date_of_birth"] = date(birth_year, 1, 1)
+    update_dict["date_of_birth"] = update_data.date_of_birth
 
     # ==================== ✅ 新增：是否患有糖尿病 ====================
     if update_data.has_diabetes:

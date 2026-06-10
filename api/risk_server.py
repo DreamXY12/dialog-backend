@@ -39,6 +39,7 @@ class LabData(BaseModel):
 
 class RiskPredictRequest(BaseModel):
     user_id: int
+    date_of_birth:str
     lab_data: LabData
     time_spec: int
     labtest_date: str
@@ -63,17 +64,21 @@ async def ai_risk_predict(
         if not res.ok:
             raise HTTPException(status_code=res.status_code, detail=res.text)
 
-        outdata = res.json()
+        ai_result = res.json()
 
-        # 统一风险等级
-        if outdata["analysis_result"] == "medium":
-            analysis_result = "medium risk"
-        elif outdata["analysis_result"] == "high":
-            analysis_result = "high risk"
-        else:
-            analysis_result = "low risk"
+        # ==============================
+        # 👇 适配 AI 新返回结构（核心修改）
+        # ==============================
+        predictions = ai_result.get("horizon_predictions", {})
 
-        score = outdata["score"]
+        # 提取 2 / 5 / 10 年结果
+        predict_2y = predictions.get("2", {})
+        predict_5y = predictions.get("5", {})
+        predict_10y = predictions.get("10", {})
+
+        # 数据库依然保存 5 年数据（保持原有逻辑）
+        score_5y = predict_5y.get("score", 0)
+        analysis_result_5y = predict_5y.get("risk_level", "low risk")
 
         # ==============================
         # 👇 这里补齐 8 个字段，全部传入
@@ -94,11 +99,36 @@ async def ai_risk_predict(
 
             time_spec=5,
             test_date=datetime.strptime(payload['labtest_date'], '%Y-%m-%d').date(),
-            new_score=score,
-            analysis_result=analysis_result
+            new_score=score_5y,
+            analysis_result=analysis_result_5y
         )
 
-        return outdata
+        # ==============================
+        # 👇 返回前端：标准化 2/5/10 年结果
+        # ==============================
+        return {
+            "risk_2y": {
+                "score": predict_2y.get("score", 0),
+                "risk_level": predict_2y.get("risk_level", "low risk"),
+                "risk_percent": predict_2y.get("risk_percent", 0),
+                "population_percentile": predict_2y.get("population_percentile", 0)
+            },
+            "risk_5y": {
+                "score": predict_5y.get("score", 0),
+                "risk_level": predict_5y.get("risk_level", "low risk"),
+                "risk_percent": predict_5y.get("risk_percent", 0),
+                "population_percentile": predict_5y.get("population_percentile", 0)
+            },
+            "risk_10y": {
+                "score": predict_10y.get("score", 0),
+                "risk_level": predict_10y.get("risk_level", "low risk"),
+                "risk_percent": predict_10y.get("risk_percent", 0),
+                "population_percentile": predict_10y.get("population_percentile", 0)
+            },
+            # 兼容原有字段（不破坏老逻辑）
+            "score": score_5y,
+            "analysis_result": analysis_result_5y
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"糖尿病风险预测失败：{str(e)}")

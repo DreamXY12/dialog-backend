@@ -4,6 +4,7 @@ from __future__ import annotations
 from sqlalchemy import Boolean,Text,Time,text,BigInteger,TIMESTAMP,Column
 import datetime
 from datetime import datetime,date
+from sqlalchemy import BIGINT, INT, VARCHAR, DATETIME
 
 import pytz
 tz = pytz.timezone("Asia/Hong_Kong")
@@ -1224,3 +1225,12 @@ class Message(Base):
 
     def __repr__(self):
         return f"<Message(message_id={self.message_id}, room_id={self.room_id}, sender={self.sender_type})>"
+
+class FoodImage(Base):
+    __tablename__ = "patient_food_images"
+
+    id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
+    patient_id: Mapped[int] = mapped_column(INT, nullable=False, index=True)
+    s3_key: Mapped[str] = mapped_column(VARCHAR(700), nullable=False)
+    upload_timestamp: Mapped[datetime] = mapped_column(DATETIME, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DATETIME, default=datetime.now(tz=tz))

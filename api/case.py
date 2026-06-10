@@ -546,7 +546,7 @@ def get_list(
 		result.append(DashboardItem(
 			case_id=c.case_id,
 			labtest_date=c.test_date,
-			create_time=c.create_time,
+			create_time=c.update_time,
 			time_spec=c.time_spec,
 			analysis_result=risk_map.get(c.analysis_result,3),
 			score=c.score,

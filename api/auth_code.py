@@ -82,6 +82,9 @@ async def login(
         # 2. 獲取使用者ID
         user_id = user.patient_id if request.user_type == "patient" else user.nurse_id
 
+        # 设置生日
+        date_of_birth=user.date_of_birth if request.user_type == "patient" else ""
+
         # 3. 驗證登入密碼
         if not authenticate_user_login_code(db, user_id, request.user_type, request.login_code):
             raise HTTPException(
@@ -118,7 +121,8 @@ async def login(
             phone=request.phone,
             phone_area_code=request.phone_area_code,
             is_first_login=False,
-            full_name=full_name
+            full_name=full_name,
+            date_of_birth=str(date_of_birth)
         )
 
     except HTTPException:
