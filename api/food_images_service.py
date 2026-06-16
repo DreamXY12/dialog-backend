@@ -10,7 +10,7 @@ router = APIRouter(prefix="/patients/me/food-images", tags=["Food Images"])
 # ------------------------------
 # 上传：前端传 patient_id
 # ------------------------------
-@router.post("/", response_model=FoodImageResponse)
+@router.post("/send_food_image", response_model=FoodImageResponse)
 async def upload(
     patient_id: int = Query(...),  # 直接从前端获取
     file: UploadFile = File(...),
@@ -31,7 +31,7 @@ async def upload(
 # ------------------------------
 # 查询列表：前端传 patient_id
 # ------------------------------
-@router.get("/", response_model=List[FoodImageResponse])
+@router.get("/get_food_image", response_model=List[FoodImageResponse])
 async def get_list(
     patient_id: int = Query(...),  # 直接从前端获取
     db: Session = Depends(get_db)
