@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 import uuid
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import select
 
 from sql.people_models import (
     ChatRoom, ConversationSession, Message,
@@ -194,9 +195,8 @@ def get_chat_room_by_uuid(
         Optional[ChatRoom]: 聊天室对象
     """
     try:
-        return db.query(ChatRoom).filter(
-            ChatRoom.room_uuid == room_uuid
-        ).first()
+        stmt = select(ChatRoom).where(ChatRoom.room_uuid == room_uuid)
+        return db.scalar(stmt)
     except Exception as e:
         print(f"通过UUID获取聊天室失败: {str(e)}")
         return None

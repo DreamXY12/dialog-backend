@@ -381,9 +381,9 @@ async def send_message(sid, data):
     if not room_uuid:
         return
 
-    lock_key = f"{REDIS_AI_REPLY_LOCK}:{room_uuid}"
-    if await redis.exists(lock_key):
-        return
+    # lock_key = f"{REDIS_AI_REPLY_LOCK}:{room_uuid}"
+    # if await redis.exists(lock_key):
+    #     return
 
     # 每次都拿全新的 DB 会话，不要复用
     db: Session = next(get_db())
@@ -444,6 +444,11 @@ async def send_message(sid, data):
         }
         await sio.emit("receive_message", msg, room=room_uuid)
 
+        if data.get("chatMode") != "nurseType" and not room.get("ai_enabled", True):
+            room["ai_enabled"] = True
+            room["abort_ai"] = False
+            await save_room(room_uuid, room)
+
         if role == "patient" and room.get("ai_enabled", True) and data.get("chatMode") != "nurseType":
             ai_message_uuid = data.get("ai_message_uuid", None)
             task = asyncio.create_task(safe_task(
@@ -474,89 +479,359 @@ async def send_message(sid, data):
         await sio.emit("receive_message", msg, room=room_uuid)
 
         db.rollback()
-        db.invalidate()  # 关键修复
-        # 强制回滚 + 失效连接（根治脏事务）
-        db.rollback()
-        db.invalidate()  # 最重要的修复
+        logger.error("PendingRollbackError occurred, rolled back.")
         print("🔥 已修复失效事务：强制回滚并重置连接")
 
     # 🔥 关键 2：捕获所有数据库错误
     except SQLAlchemyError as e:
         db.rollback()
-        print(f"数据库异常：{str(e)}")
+        logger.error(f"Database error: {e}")
 
     # 其他异常
     except Exception as e:
         db.rollback()
-        print(f"未知异常：{str(e)}")
+        logger.error(f"Unknown error: {e}")
 
     # 🔥 关键 3：无论如何都彻底清理会话
     finally:
-        db.rollback()  # 兜底回滚，防止残留事务
         db.close()
-        db = None  # 释放引用
 
-async def handle_ai_reply(room_uuid, user_msg, ai_session_id,message_uuid=None,ai_message_uuid=None):
-    # 这个message_uuid指的是用户发送消息的uuid，用于update_message_session_uuid函数
+# async def handle_ai_reply(room_uuid, user_msg, ai_session_id,message_uuid=None,ai_message_uuid=None):
+#     # 这个message_uuid指的是用户发送消息的uuid，用于update_message_session_uuid函数
+#     lock_key = f"{REDIS_AI_REPLY_LOCK}:{room_uuid}"
+#     await redis.set(lock_key, "1", ex=15)
+#
+#     db: Session = next(get_db())
+#     try:
+#         room = await get_room(room_uuid)
+#         if room.get("abort_ai"):
+#             return
+#
+#         # 1. 获取房间信息
+#         chat_room = get_chat_room_by_uuid(db, room_uuid)
+#         if not chat_room:
+#             return
+#
+#         # 2. 请求 AI Agent
+#         status, ai_data = await ai_public_chat(
+#             message=user_msg["content"],
+#             session_id="",
+#             room_uuid=room_uuid
+#         )
+#         if status != 200:
+#             msg_id = str(uuid.uuid4())
+#             ai_msg = {
+#                 "message_uuid": msg_id,
+#                 "room_uuid": room_uuid,
+#                 "user_id": "ai",
+#                 "role": "ai",
+#                 "content":"The AI service is experiencing an issue. We apologize, please try again later.",
+#                 "streaming": False,
+#                 "chatMode": "AI",
+#                 "state": "stopped"
+#             }
+#             await sio.emit("receive_message", ai_msg, room=room_uuid)
+#             return
+#
+#
+#
+#         # ===================== 读取 AI 返回核心字段 =====================
+#         ai_state = ai_data.get("state", "").strip()
+#         ai_text = ai_data.get("message", "").strip()
+#         new_session_id = ai_data.get("session_id")
+#         # =================================================================
+#
+#         # ---------------------------------------------------------------------
+#         # ✅ 关键：所有 state 都必须返回消息给前端
+#         # ---------------------------------------------------------------------
+#         reply_text = ""
+#
+#         if ai_state == "stopped":
+#             # 如果為stopped 則後台新建一個會話
+#             status, ai_data = await ai_public_chat(
+#                 message=user_msg["content"],
+#                 session_id="",
+#                 room_uuid=room_uuid
+#             )
+#             if status != 200:
+#                 msg_id = str(uuid.uuid4())
+#                 ai_msg = {
+#                     "message_uuid": msg_id,
+#                     "room_uuid": room_uuid,
+#                     "user_id": "ai",
+#                     "role": "ai",
+#                     "content": "AI 服務出現異常，抱歉，請稍後重試",
+#                     "streaming": False,
+#                     "chatMode": "AI",
+#                     "state": "stopped"
+#                 }
+#                 await sio.emit("receive_message", ai_msg, room=room_uuid)
+#                 return
+#             elif status == 200:
+#                 # 如果返回成功了，則直接先清空所有
+#                 # 先獲取房間內的病人的id
+#                 patient_id = room["patient_id"]
+#                 is_ok = delete_patient_current_session_and_clear(db=db, patient_id=int(patient_id))
+#                 if not is_ok:
+#                     msg_id = str(uuid.uuid4())
+#                     ai_msg = {
+#                         "message_uuid": msg_id,
+#                         "room_uuid": room_uuid,
+#                         "user_id": "ai",
+#                         "role": "ai",
+#                         "content": "AI 服務出現異常，抱歉，請稍後重試",
+#                         "streaming": False,
+#                         "chatMode": "AI",
+#                         "state": "stopped"
+#                     }
+#                     await sio.emit("receive_message", ai_msg, room=room_uuid)
+#                     return
+#                 else:
+#                     new_session_id = ai_data.get("session_id")
+#                     active_session = await create_new_session(
+#                     room_id=str(chat_room.room_id), user_id=str(patient_id), role="patient", db=db,
+#                     ai_session_id=new_session_id)
+#                     update_chat_room_current_session_uuid_by_patient(db, patient_id, new_session_id)
+#                     update_message_session_uuid(db,message_uuid,new_session_id)
+#                     reply_text = ai_data.get("message", "").strip()
+#
+#
+#         elif ai_state == "needs_input":
+#             reply_text = ai_text if ai_text else "請您補充相關資料，我才能繼續為您評估。"
+#
+#         elif ai_state == "urgent":
+#             reply_text = ai_text if ai_text else "偵測到健康風險，建議您盡快諮詢醫護人員。您可以直接輸入'轉人工'，或者點擊下方緊急聯係護士按鈕。"
+#
+#         elif ai_state == "in_progress":
+#             reply_text = ai_text if ai_text else "處理中，請稍後..."
+#
+#         elif ai_state == "completed":
+#             reply_text = ai_text if ai_text else "本次諮詢已完成。"
+#
+#         # 更新 session_id
+#         if room.get("ai_session_id") != new_session_id:
+#             if new_session_id:
+#                 room["ai_session_id"] = new_session_id
+#                 await save_room(room_uuid, room)
+#
+#         # ---------------------------------------------------------------------
+#         # 3. 获取会话
+#         # ---------------------------------------------------------------------
+#         active_session = get_current_active_session(str(chat_room.room_id), db)
+#         if not active_session:
+#             # 如果没有就从AI那里直接拿
+#             patient_id = room["patient_id"]
+#             new_session_id = ai_data.get("session_id")
+#             active_session = await create_new_session(
+#                 room_id=str(chat_room.room_id), user_id=str(patient_id), role="patient", db=db,
+#                 ai_session_id=new_session_id)
+#             update_chat_room_current_session_uuid_by_patient(db, patient_id, new_session_id)
+#             update_message_session_uuid(db, message_uuid, new_session_id)
+#             # reply_text = ai_data.get("message", "").strip()
+#
+#         # ---------------------------------------------------------------------
+#         # 4. 存入数据库（所有状态都存）
+#         # ---------------------------------------------------------------------
+#         if ai_message_uuid is None:
+#             ai_message_uuid = str(uuid.uuid4())
+#         get_or_create_message(
+#             db=db,
+#             session_uuid=str(active_session.session_uuid),
+#             sender_type="ai",
+#             sender_id=0,
+#             content=reply_text,
+#             message_uuid=ai_message_uuid,
+#             chat_mode="AI",
+#             temp_id=None,
+#             room_id=chat_room.room_id,
+#         )
+#
+#         # ---------------------------------------------------------------------
+#         # 5. 推送给前端（一定会发）
+#         # ---------------------------------------------------------------------
+#         # msg_id = str(uuid.uuid4())
+#         # ai_msg = {
+#         #     "message_uuid": msg_id,
+#         #     "room_uuid": room_uuid,
+#         #     "user_id": "ai",
+#         #     "role": "ai",
+#         #     "content": reply_text,
+#         #     "streaming": False,
+#         #     "chatMode": "AI",
+#         #     "state": ai_state
+#         # }
+#         # await sio.emit("receive_message", ai_msg, room=room_uuid)
+#
+#         # ---------------------------------------------------------------------
+#         # 5. ✅ 流式推送给前端（核心改造区）
+#         # ---------------------------------------------------------------------
+#         base_msg = {
+#             "message_uuid": ai_message_uuid,
+#             "room_uuid": room_uuid,
+#             "user_id": "ai",
+#             "role": "ai",
+#             "chatMode": "AI",
+#             "isLoading": False,
+#         }
+#
+#         # 空内容直接发结束包
+#         if not reply_text:
+#             ai_msg = {**base_msg, "content": "", "streaming": False, "state": ai_state}
+#             await sio.emit("receive_message", ai_msg, room=room_uuid)
+#             return
+#
+#         # ==============================================
+#         # 流式发送：逐字/逐块推送，最后发结束标志
+#         # ==============================================
+#         stream_delay = 0.08  # 可调整打字速度（秒）
+#         content_length = len(reply_text)
+#         chunk_size = 1       # 每次发1个字符（逐字效果最好）
+#
+#         # 流式分段发送
+#         for i in range(0, content_length, chunk_size):
+#             chunk = reply_text[i:i + chunk_size]
+#             stream_msg = {
+#                 **base_msg,
+#                 "content": chunk,
+#                 "streaming": True,
+#                 "state": ai_state
+#             }
+#             await sio.emit("receive_message", stream_msg, room=room_uuid)
+#             await asyncio.sleep(stream_delay)  # 加延迟模拟打字机效果
+#
+#         # ✅ 最后发送一条结束消息（streaming=False）
+#         end_msg = {
+#             **base_msg,
+#             "content": reply_text,  # 前端可选择拼接或忽略
+#             "streaming": False,
+#             "state": ai_state
+#         }
+#         await sio.emit("receive_message", end_msg, room=room_uuid)
+#
+#
+#     finally:
+#         await redis.delete(lock_key)
+#         db.close()
+
+async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None, ai_message_uuid=None):
+    # ==================== 第一阶段：获取必要信息（短暂持有 DB 连接） ====================
     lock_key = f"{REDIS_AI_REPLY_LOCK}:{room_uuid}"
-    await redis.set(lock_key, "1", ex=15)
+    await redis.set(lock_key, "1", ex=200)  # 锁时间延长到200秒，避免并发冲突
 
-    db: Session = next(get_db())
+    # 1. 从 Redis 获取房间信息（不需要 DB）
+    room = await get_room(room_uuid)
+    if not room or room.get("abort_ai"):
+        await redis.delete(lock_key)
+        return
+
+    patient_id = room.get("patient_id")
+    if not patient_id:
+        await redis.delete(lock_key)
+        return
+
+    # 2. 从数据库快速获取 chat_room 信息，然后立即释放连接
+    db_quick: Session = next(get_db())
     try:
-        room = await get_room(room_uuid)
-        if room.get("abort_ai"):
-            return
-
-        # 1. 获取房间信息
-        chat_room = get_chat_room_by_uuid(db, room_uuid)
+        chat_room = get_chat_room_by_uuid(db_quick, room_uuid)
         if not chat_room:
+            await redis.delete(lock_key)
             return
+        room_id = chat_room.room_id
+        # 还可以在这里获取其他必要的数据库信息（如 nurse_id 等），但不要过多
+    finally:
+        db_quick.close()  # ⚠️ 立即归还连接，之后不再持有
 
-        # 2. 请求 AI Agent
-        status, ai_data = await ai_public_chat(
+    # ==================== 第二阶段：发起 AI 请求（不持有任何 DB 连接） ====================
+    status, ai_data = await ai_public_chat(
+        message=user_msg["content"],
+        session_id="",
+        room_uuid=room_uuid
+    )
+
+    if status != 200:
+        # AI 服务异常，直接返回错误消息
+        ai_msg = {
+            "message_uuid": str(uuid.uuid4()),
+            "room_uuid": room_uuid,
+            "user_id": "ai",
+            "role": "ai",
+            "content": "The AI service is experiencing an issue. We apologize, please try again later.",
+            "streaming": False,
+            "chatMode": "AI",
+            "state": "stopped"
+        }
+        await sio.emit("receive_message", ai_msg, room=room_uuid)
+        await redis.delete(lock_key)
+        return
+
+    # 解析 AI 返回
+    ai_state = ai_data.get("state", "").strip()
+    ai_text = ai_data.get("message", "").strip()
+    new_session_id = ai_data.get("session_id")
+    reply_text = ""
+
+    # 处理 stopped 状态：可能需要重新发起 AI 请求（同样不持有连接）
+    if ai_state == "stopped":
+        # 第二次 AI 请求（不持有 DB 连接）
+        status2, ai_data2 = await ai_public_chat(
             message=user_msg["content"],
             session_id="",
             room_uuid=room_uuid
         )
-        if status != 200:
-            msg_id = str(uuid.uuid4())
+        if status2 != 200:
             ai_msg = {
-                "message_uuid": msg_id,
+                "message_uuid": str(uuid.uuid4()),
                 "room_uuid": room_uuid,
                 "user_id": "ai",
                 "role": "ai",
-                "content":"The AI service is experiencing an issue. We apologize, please try again later.",
+                "content": "AI 服務出現異常，抱歉，請稍後重試",
                 "streaming": False,
                 "chatMode": "AI",
                 "state": "stopped"
             }
             await sio.emit("receive_message", ai_msg, room=room_uuid)
+            await redis.delete(lock_key)
             return
 
+        # 第二次 AI 请求成功
+        new_session_id = ai_data2.get("session_id")
+        reply_text = ai_data2.get("message", "").strip()
 
+        # 注意：这里的数据库操作（清除旧 session、创建新 session 等）将在第三阶段统一进行
+        # 但我们先把必要信息记录下来，后面一起处理
+        # 这里我们只需要知道需要清除并重建 session
+        need_clear_and_recreate = True
+        # 保存第二次 AI 的 session_id 和 reply_text
+        ai_data = ai_data2  # 覆盖，方便后续统一处理
+    else:
+        need_clear_and_recreate = False
 
-        # ===================== 读取 AI 返回核心字段 =====================
-        ai_state = ai_data.get("state", "").strip()
-        ai_text = ai_data.get("message", "").strip()
-        new_session_id = ai_data.get("session_id")
-        # =================================================================
+    # 处理其他状态
+    if ai_state == "needs_input":
+        reply_text = ai_text if ai_text else "請您補充相關資料，我才能繼續為您評估。"
+    elif ai_state == "urgent":
+        reply_text = ai_text if ai_text else "偵測到健康風險，建議您盡快諮詢醫護人員。您可以直接輸入'轉人工'，或者點擊下方緊急聯係護士按鈕。"
+    elif ai_state == "in_progress":
+        reply_text = ai_text if ai_text else "處理中，請稍後..."
+    elif ai_state == "completed":
+        reply_text = ai_text if ai_text else "本次諮詢已完成。"
 
-        # ---------------------------------------------------------------------
-        # ✅ 关键：所有 state 都必须返回消息给前端
-        # ---------------------------------------------------------------------
-        reply_text = ""
+    # 更新 Redis 中的 session_id
+    if room.get("ai_session_id") != new_session_id and new_session_id:
+        room["ai_session_id"] = new_session_id
+        await save_room(room_uuid, room)
 
-        if ai_state == "stopped":
-            # 如果為stopped 則後台新建一個會話
-            status, ai_data = await ai_public_chat(
-                message=user_msg["content"],
-                session_id="",
-                room_uuid=room_uuid
-            )
-            if status != 200:
-                msg_id = str(uuid.uuid4())
+    # ==================== 第三阶段：AI 返回后，重新获取 DB 连接进行写库 ====================
+    db: Session = next(get_db())
+    try:
+        # 如果是 stopped 状态，需要先清除旧的 session 并创建新的
+        if need_clear_and_recreate:
+            # 清除当前患者的 session
+            is_ok = delete_patient_current_session_and_clear(db=db, patient_id=int(patient_id))
+            if not is_ok:
+                # 清除失败，发送错误消息并返回
                 ai_msg = {
-                    "message_uuid": msg_id,
+                    "message_uuid": str(uuid.uuid4()),
                     "room_uuid": room_uuid,
                     "user_id": "ai",
                     "role": "ai",
@@ -566,72 +841,38 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id,message_uuid=None,a
                     "state": "stopped"
                 }
                 await sio.emit("receive_message", ai_msg, room=room_uuid)
-                return
-            elif status == 200:
-                # 如果返回成功了，則直接先清空所有
-                # 先獲取房間內的病人的id
-                patient_id = room["patient_id"]
-                is_ok = delete_patient_current_session_and_clear(db=db, patient_id=int(patient_id))
-                if not is_ok:
-                    msg_id = str(uuid.uuid4())
-                    ai_msg = {
-                        "message_uuid": msg_id,
-                        "room_uuid": room_uuid,
-                        "user_id": "ai",
-                        "role": "ai",
-                        "content": "AI 服務出現異常，抱歉，請稍後重試",
-                        "streaming": False,
-                        "chatMode": "AI",
-                        "state": "stopped"
-                    }
-                    await sio.emit("receive_message", ai_msg, room=room_uuid)
-                    return
-                else:
-                    new_session_id = ai_data.get("session_id")
-                    active_session = await create_new_session(
-                    room_id=str(chat_room.room_id), user_id=str(patient_id), role="patient", db=db,
-                    ai_session_id=new_session_id)
-                    update_chat_room_current_session_uuid_by_patient(db, patient_id, new_session_id)
-                    update_message_session_uuid(db,message_uuid,new_session_id)
-                    reply_text = ai_data.get("message", "").strip()
+                return  # 注意：这里 return 后 finally 会执行
 
-
-        elif ai_state == "needs_input":
-            reply_text = ai_text if ai_text else "請您補充相關資料，我才能繼續為您評估。"
-
-        elif ai_state == "urgent":
-            reply_text = ai_text if ai_text else "偵測到健康風險，建議您盡快諮詢醫護人員。您可以直接輸入'轉人工'，或者點擊下方緊急聯係護士按鈕。"
-
-        elif ai_state == "in_progress":
-            reply_text = ai_text if ai_text else "處理中，請稍後..."
-
-        elif ai_state == "completed":
-            reply_text = ai_text if ai_text else "本次諮詢已完成。"
-
-        # 更新 session_id
-        if room.get("ai_session_id") != new_session_id:
-            if new_session_id:
-                room["ai_session_id"] = new_session_id
-                await save_room(room_uuid, room)
-
-        # ---------------------------------------------------------------------
-        # 3. 获取会话
-        # ---------------------------------------------------------------------
-        active_session = get_current_active_session(str(chat_room.room_id), db)
-        if not active_session:
-            # 如果没有就从AI那里直接拿
-            patient_id = room["patient_id"]
-            new_session_id = ai_data.get("session_id")
+            # 创建新 session
             active_session = await create_new_session(
-                room_id=str(chat_room.room_id), user_id=str(patient_id), role="patient", db=db,
-                ai_session_id=new_session_id)
+                room_id=str(room_id),
+                user_id=str(patient_id),
+                role="patient",
+                db=db,
+                ai_session_id=new_session_id
+            )
+            # 更新 chat_room 的当前 session_uuid
             update_chat_room_current_session_uuid_by_patient(db, patient_id, new_session_id)
-            update_message_session_uuid(db, message_uuid, new_session_id)
-            # reply_text = ai_data.get("message", "").strip()
+            # 更新用户消息的 session_uuid
+            if message_uuid:
+                update_message_session_uuid(db, message_uuid, new_session_id)
+        else:
+            # 非 stopped 状态，获取当前活跃 session
+            active_session = get_current_active_session(str(room_id), db)
+            if not active_session:
+                # 如果没有活跃 session，则创建新的（与上面类似）
+                active_session = await create_new_session(
+                    room_id=str(room_id),
+                    user_id=str(patient_id),
+                    role="patient",
+                    db=db,
+                    ai_session_id=new_session_id
+                )
+                update_chat_room_current_session_uuid_by_patient(db, patient_id, new_session_id)
+                if message_uuid:
+                    update_message_session_uuid(db, message_uuid, new_session_id)
 
-        # ---------------------------------------------------------------------
-        # 4. 存入数据库（所有状态都存）
-        # ---------------------------------------------------------------------
+        # 保存 AI 回复消息到数据库
         if ai_message_uuid is None:
             ai_message_uuid = str(uuid.uuid4())
         get_or_create_message(
@@ -643,75 +884,72 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id,message_uuid=None,a
             message_uuid=ai_message_uuid,
             chat_mode="AI",
             temp_id=None,
-            room_id=chat_room.room_id,
+            room_id=room_id,
         )
 
-        # ---------------------------------------------------------------------
-        # 5. 推送给前端（一定会发）
-        # ---------------------------------------------------------------------
-        # msg_id = str(uuid.uuid4())
-        # ai_msg = {
-        #     "message_uuid": msg_id,
-        #     "room_uuid": room_uuid,
-        #     "user_id": "ai",
-        #     "role": "ai",
-        #     "content": reply_text,
-        #     "streaming": False,
-        #     "chatMode": "AI",
-        #     "state": ai_state
-        # }
-        # await sio.emit("receive_message", ai_msg, room=room_uuid)
+        # 提交事务
+        db.commit()
 
-        # ---------------------------------------------------------------------
-        # 5. ✅ 流式推送给前端（核心改造区）
-        # ---------------------------------------------------------------------
-        base_msg = {
-            "message_uuid": ai_message_uuid,
+    except Exception as e:
+        db.rollback()
+        logger.error(f"数据库操作失败: {e}", exc_info=True)
+        # 发送错误消息给前端
+        ai_msg = {
+            "message_uuid": str(uuid.uuid4()),
             "room_uuid": room_uuid,
             "user_id": "ai",
             "role": "ai",
-            "chatMode": "AI",
-            "isLoading": False,
-        }
-
-        # 空内容直接发结束包
-        if not reply_text:
-            ai_msg = {**base_msg, "content": "", "streaming": False, "state": ai_state}
-            await sio.emit("receive_message", ai_msg, room=room_uuid)
-            return
-
-        # ==============================================
-        # 流式发送：逐字/逐块推送，最后发结束标志
-        # ==============================================
-        stream_delay = 0.08  # 可调整打字速度（秒）
-        content_length = len(reply_text)
-        chunk_size = 1       # 每次发1个字符（逐字效果最好）
-
-        # 流式分段发送
-        for i in range(0, content_length, chunk_size):
-            chunk = reply_text[i:i + chunk_size]
-            stream_msg = {
-                **base_msg,
-                "content": chunk,
-                "streaming": True,
-                "state": ai_state
-            }
-            await sio.emit("receive_message", stream_msg, room=room_uuid)
-            await asyncio.sleep(stream_delay)  # 加延迟模拟打字机效果
-
-        # ✅ 最后发送一条结束消息（streaming=False）
-        end_msg = {
-            **base_msg,
-            "content": reply_text,  # 前端可选择拼接或忽略
+            "content": "系統錯誤，請稍後重試",
             "streaming": False,
-            "state": ai_state
+            "chatMode": "AI",
+            "state": "stopped"
         }
-        await sio.emit("receive_message", end_msg, room=room_uuid)
-
+        await sio.emit("receive_message", ai_msg, room=room_uuid)
+        return  # 注意：return 后 finally 会执行
 
     finally:
-        await redis.delete(lock_key)
         db.close()
+        await redis.delete(lock_key)
+
+    # ==================== 第四阶段：推送给前端（流式发送） ====================
+    # 这部分代码与原来相同，只是移到了数据库操作之后
+    base_msg = {
+        "message_uuid": ai_message_uuid,
+        "room_uuid": room_uuid,
+        "user_id": "ai",
+        "role": "ai",
+        "chatMode": "AI",
+        "isLoading": False,
+    }
+
+    if not reply_text:
+        ai_msg = {**base_msg, "content": "", "streaming": False, "state": ai_state}
+        await sio.emit("receive_message", ai_msg, room=room_uuid)
+        return
+
+    # 流式发送
+    stream_delay = 0.08
+    content_length = len(reply_text)
+    chunk_size = 1
+    for i in range(0, content_length, chunk_size):
+        chunk = reply_text[i:i + chunk_size]
+        stream_msg = {
+            **base_msg,
+            "content": chunk,
+            "streaming": True,
+            "state": ai_state
+        }
+        await sio.emit("receive_message", stream_msg, room=room_uuid)
+        await asyncio.sleep(stream_delay)
+
+    # 结束包
+    end_msg = {
+        **base_msg,
+        "content": reply_text,
+        "streaming": False,
+        "state": ai_state
+    }
+    await sio.emit("receive_message", end_msg, room=room_uuid)
 
 # =========================
 # 其他事件（已稳定化）
