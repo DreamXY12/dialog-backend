@@ -577,8 +577,17 @@ class Case(TimeStampMixIn, Base):
 
     time_spec: Mapped[int] = mapped_column(Integer)
     test_date: Mapped[Date] = mapped_column(Date)
+    # 2年预测
+    analysis_result_2: Mapped[Optional[str]] = mapped_column(String(30))
+    score_2: Mapped[Optional[float]] = mapped_column(Float)
+
+    # 原有5年预测
     analysis_result: Mapped[Optional[str]] = mapped_column(String(30))
     score: Mapped[Optional[float]] = mapped_column(Float)
+
+    # 10年预测
+    analysis_result_10: Mapped[Optional[str]] = mapped_column(String(30))
+    score_10: Mapped[Optional[float]] = mapped_column(Float)
 
 class PatientAIDialogHistory(TimeStampMixIn, Base):
     """患者-AI对话历史记录表"""
@@ -1232,5 +1241,6 @@ class FoodImage(Base):
     id: Mapped[int] = mapped_column(BIGINT, primary_key=True, autoincrement=True)
     patient_id: Mapped[int] = mapped_column(INT, nullable=False, index=True)
     s3_key: Mapped[str] = mapped_column(VARCHAR(700), nullable=False)
+    remark:Mapped[str] = mapped_column(VARCHAR(300), nullable=True)
     upload_timestamp: Mapped[datetime] = mapped_column(DATETIME, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DATETIME, default=datetime.now(tz=tz))

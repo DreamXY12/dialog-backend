@@ -117,7 +117,13 @@ def upsert_patient_score(
     time_spec: int,
     test_date: Date,
     new_score: float,
-    analysis_result: str | None = None
+    new_score_2:float,
+    new_score_10:float,
+    analysis_result: str | None = None,
+    analysis_result_2: str | None = None,
+    analysis_result_10: str | None = None,
+
+
 ):
     case_table: Table = Case.__table__
 
@@ -148,7 +154,11 @@ def upsert_patient_score(
             .where(condition)
             .values(
                 score=new_score,
-                analysis_result=analysis_result
+                score_2=new_score_2,
+                score_10=new_score_10,
+                analysis_result=analysis_result,
+                analysis_result_2=analysis_result_2,
+                analysis_result_10=analysis_result_10
             )
         )
         conn.execute(update_stmt)
@@ -170,7 +180,11 @@ def upsert_patient_score(
             time_spec=time_spec,
             test_date=test_date,
             score=new_score,
-            analysis_result=analysis_result
+            score_2=new_score_2,
+            score_10=new_score_10,
+            analysis_result=analysis_result,
+            analysis_result_2=analysis_result_2,
+            analysis_result_10=analysis_result_10
         )
         result = conn.execute(insert_stmt)
         conn.commit()
@@ -189,6 +203,8 @@ def get_cases_by_user(db: Connection, user):
     
     stmt = (
         select(Case.case_id, Case.test_date, Case.update_time, Case.time_spec, Case.analysis_result, Case.score,
+               Case.analysis_result_2, Case.analysis_result_10,
+               Case.score_2,Case.score_10,
                Case.hba1c, Case.fasting_glucose, Case.hdl_cholesterol, 
                Case.total_cholesterol, Case.ldl_cholesterol, Case.creatinine, 
                Case.triglyceride, Case.potassium)\

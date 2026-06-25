@@ -87,6 +87,12 @@ async def ai_risk_predict(
         score_5y = predict_5y.get("score", 0)
         analysis_result_5y = predict_5y.get("risk_level", "low risk")
 
+        score_2y=predict_2y.get("score", 0)
+        analysis_result_2y=predict_2y.get("risk_level", "low risk")
+
+        score_10y=predict_10y.get("score", 0)
+        analysis_result_10y=predict_10y.get("risk_level", "low risk")
+
         # ==============================
         # 👇 这里补齐 8 个字段，全部传入
         # ==============================
@@ -107,7 +113,11 @@ async def ai_risk_predict(
             time_spec=5,
             test_date=datetime.strptime(payload['labtest_date'], '%Y-%m-%d').date(),
             new_score=score_5y,
-            analysis_result=analysis_result_5y
+            new_score_2=score_2y,
+            new_score_10=score_10y,
+            analysis_result=analysis_result_5y,
+            analysis_result_2=analysis_result_2y,
+            analysis_result_10=analysis_result_10y,
         )
 
         # ==============================

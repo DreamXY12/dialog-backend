@@ -22,7 +22,11 @@ class DashboardItem(BaseModel):
     create_time: Optional[datetime] = None
     time_spec: Optional[int] = None
     analysis_result: Optional[int] = None
+    analysis_result2: Optional[int] = None
+    analysis_result10: Optional[int] = None
     score: Optional[float] = None
+    score2: Optional[float] = None
+    score10: Optional[float] = None
     hba1c: Optional[float] = None
     fasting_glucose: Optional[float] = None
     hdl_cholesterol: Optional[float] = None

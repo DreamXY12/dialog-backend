@@ -40,11 +40,11 @@ SQLALCHEMY_DATABASE_URL = f"mysql+mysqlconnector://{USERNAME}:{PASSWORD}@{HOST}/
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     echo=False,
-    pool_size=20,
-    max_overflow=10,
-    pool_recycle=3600,      # 空闲连接超过1小时自动回收
+    pool_size=30,
+    max_overflow=20,
+    pool_recycle=1800,      # 空闲连接超过30分钟自动回收
     pool_pre_ping=True,     # 每次从池中取连接前先 ping 一下
-    pool_timeout=30         # 等待连接的超时时间（秒）
+    pool_timeout=20         # 等待连接的超时时间（秒）
 )
 pool = engine.pool
 # ==============================

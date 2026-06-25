@@ -10,19 +10,26 @@ class FoodService:
         patient_id: int,
         file_bytes: bytes,
         filename: str,
-        content_type: str
+        content_type: str,
+        remark: str,
+        eat_time:str
     ):
         ext = filename.split(".")[-1].lower()
         if ext not in ["jpg", "jpeg", "png", "webp"]:
             raise Exception("不支持的图片格式")
 
-        now = datetime.now()
+        if eat_time:
+            # 把前端字符串转为 datetime 对象
+            now = datetime.strptime(eat_time, "%Y-%m-%d %H:%M:%S")
+        else:
+            now = datetime.now()
         s3_key = s3_service.generate_key(patient_id, now, ext)
         s3_service.upload(s3_key, file_bytes, content_type)
 
         food_image = FoodImage(
             patient_id=patient_id,
             s3_key=s3_key,
+            remark=remark,
             upload_timestamp=now
         )
 
