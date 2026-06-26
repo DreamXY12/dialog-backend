@@ -106,7 +106,8 @@ async def ai_public_chat(message: str, session_id: str = None, room_uuid: str = 
             res = await client.post(f"{AI_BASE_URL}/api/public/chat", json=payload)
         return res.status_code, res.json()
     except Exception as e:
-        print(f"AI 请求失败: {str(e)}")
+        logger.error(f"AI 请求失败: {str(e)}")
+        #print(f"AI 请求失败: {str(e)}")
         # await sio.emit("receive_message", {
         #     "room_uuid": room_uuid,
         #     "user_id": "ai",
@@ -751,11 +752,11 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
     if status != 200:
         # AI 服务异常，直接返回错误消息
         ai_msg = {
-            "message_uuid": str(uuid.uuid4()),
+            "message_uuid": ai_message_uuid,
             "room_uuid": room_uuid,
             "user_id": "ai",
             "role": "ai",
-            "content": "The AI service is experiencing an issue. We apologize, please try again later.",
+            "content": "AI 服務出現異常，抱歉，請稍後重試",
             "streaming": False,
             "chatMode": "AI",
             "state": "stopped"
@@ -780,7 +781,7 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
         )
         if status2 != 200:
             ai_msg = {
-                "message_uuid": str(uuid.uuid4()),
+                "message_uuid": ai_message_uuid,
                 "room_uuid": room_uuid,
                 "user_id": "ai",
                 "role": "ai",
@@ -831,7 +832,7 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
             if not is_ok:
                 # 清除失败，发送错误消息并返回
                 ai_msg = {
-                    "message_uuid": str(uuid.uuid4()),
+                    "message_uuid": ai_message_uuid,
                     "room_uuid": room_uuid,
                     "user_id": "ai",
                     "role": "ai",
@@ -895,7 +896,7 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
         logger.error(f"数据库操作失败: {e}", exc_info=True)
         # 发送错误消息给前端
         ai_msg = {
-            "message_uuid": str(uuid.uuid4()),
+            "message_uuid": ai_message_uuid,
             "room_uuid": room_uuid,
             "user_id": "ai",
             "role": "ai",
