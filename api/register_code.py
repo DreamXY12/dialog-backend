@@ -8,7 +8,7 @@ import pytz
 tz = pytz.timezone("Asia/Hong_Kong")
 
 # 你原有的配置
-ACCESS_TOKEN_EXPIRE_DAYS = 3
+ACCESS_TOKEN_EXPIRE_DAYS = 7
 ACCESS_TOKEN_EXPIRE_MINUTES = ACCESS_TOKEN_EXPIRE_DAYS * 24 * 60
 
 # 导入你的项目依赖

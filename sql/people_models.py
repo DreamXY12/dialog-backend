@@ -30,7 +30,7 @@ class ReaderRole(str, enum.Enum):
     PATIENT = "patient"
     NURSE = "nurse"
 
-# ---------------------------
+# ---------------------------。
 # 基础类定义
 # ---------------------------
 class Base(DeclarativeBase):

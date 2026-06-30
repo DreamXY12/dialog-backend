@@ -32,10 +32,8 @@ if ISLOCALDEV=="0":
     #这里只用修改HOST就行了，其余都不变
     HOST="diabetes-rds.cteaa20ag0h1.ap-southeast-1.rds.amazonaws.com"
     
-    
 # 使用直接的连接字符串格式，确保认证插件被正确指定
 SQLALCHEMY_DATABASE_URL = f"mysql+mysqlconnector://{USERNAME}:{PASSWORD}@{HOST}/{DATABASE}?auth_plugin=caching_sha2_password"
-
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,

@@ -1042,10 +1042,25 @@ async def sync_chat_mode_broadcast(sid, data):
 # 只有護士才會離開房間，病人除了斷開鏈接，否則一直會在房間内
 @sio.event
 async def leave_room(sid, data):
-    room_uuid = data["room_uuid"]
-    if room_uuid:
-        await get_room(room_uuid)
-        await sio.emit("nurse_leave",room=room_uuid)
+    room_uuid = data.get("room_uuid")
+    if not room_uuid:
+        return
+
+    # 1. 让该 sid 退出房间组（关键修复）
+    await sio.leave_room(sid, room_uuid)
+
+    # 2. 获取房间信息并清理护士绑定（如果是当前护士）
+    room = await get_room(room_uuid)
+    if room and room.get("nurse_sid") == sid:
+        room["nurse_sid"] = None
+        room["nurse_id"] = None
+        # 恢复 AI 模式，避免残留接管状态
+        room["ai_enabled"] = True
+        room["abort_ai"] = False
+        await save_room(room_uuid, room)
+
+    # 3. 广播护士离开（通知房间内其他成员，如病人）
+    await sio.emit("nurse_leave", room=room_uuid)
 
 #護士如果更新了上下班時間，就給對應的病人通告
 @sio.event
