@@ -58,6 +58,11 @@ REDIS_USER_ROLE = "chat:user_role"
 REDIS_SID_TO_USER = "chat:sid_to_user"
 REDIS_ROOM_INFO = "chat:room_info"
 REDIS_AI_REPLY_LOCK = "chat:ai_replying"
+# 用户登录时间记录相关 Redis Key
+REDIS_LAST_SEEN = "user:last_seen"           # Hash: patient_id -> timestamp (秒)
+REDIS_LOGIN_FLAG = "user:login_flag"         # String 临时锁，用于去重
+LOGIN_FLAG_EXPIRE = 60                       # 1分钟内不重复记录
+SYNC_INTERVAL = 300                           # 每300秒同步一次到 MySQL
 
 async def init_redis_once():
     global redis
@@ -75,6 +80,46 @@ async def init_redis_once():
     await redis.delete(REDIS_ONLINE_USER)
     await redis.delete(REDIS_USER_ROLE)
     await redis.delete(REDIS_SID_TO_USER)
+
+    asyncio.create_task(sync_last_seen_to_db())
+    print("🔄 后台登录时间同步任务已启动")
+
+from sql.patient_curd import update_patients_last_login
+async def sync_last_seen_to_db():
+    while True:
+        try:
+            await asyncio.sleep(SYNC_INTERVAL)
+            all_data = await redis.hgetall(REDIS_LAST_SEEN)
+            if not all_data:
+                continue
+
+            updates = []
+            for patient_id_str, timestamp_str in all_data.items():
+                try:
+                    patient_id = int(patient_id_str)
+                    ts = int(timestamp_str)
+                except ValueError:
+                    continue
+                updates.append((patient_id, ts))
+
+            if not updates:
+                continue
+
+            db = next(get_db())
+            try:
+                update_patients_last_login(db, updates)
+                logger.info(f"✅ 批量更新了 {len(updates)} 条患者登录时间")
+            except Exception as e:
+                db.rollback()
+                logger.error(f"❌ 批量更新登录时间失败: {e}")
+            finally:
+                db.close()
+
+            await redis.hdel(REDIS_LAST_SEEN, *[str(u[0]) for u in updates])
+
+        except Exception as e:
+            logger.error(f"❌ 同步任务异常: {e}")
+            await asyncio.sleep(5)
 
 
 # =========================
@@ -219,6 +264,14 @@ async def connect(sid, environ, auth):
     await redis.hset(REDIS_USER_ROLE, user_id, role)
     await redis.hset(REDIS_SID_TO_USER, sid, user_id)
     print(f"{role} {user_id} 上线")
+
+    # 记录患者最后登录时间（仅限患者，带 1 分钟去重）
+    if role == "patient":
+        flag_key = f"{REDIS_LOGIN_FLAG}:{user_id}"
+        if not await redis.exists(flag_key):
+            await redis.setex(flag_key, LOGIN_FLAG_EXPIRE, "1")
+            current_ts = int(time.time())
+            await redis.hset(REDIS_LAST_SEEN, user_id, current_ts)
 
     if role == "patient":
         await get_nurse_online_status(sid, auth)

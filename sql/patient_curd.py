@@ -847,3 +847,38 @@ def get_ai_dialogs_by_patient_and_day(
     return get_ai_dialogs_by_patient_and_date_range(
         db, patient_login_code, start_of_day, end_of_day
     )
+
+from sqlalchemy import update, case, func
+from typing import List, Tuple
+from sql.people_models import PatientLoginCode
+
+def update_patients_last_login(db: Session, updates: List[Tuple[int, int]]) -> None:
+    """
+    批量更新患者的最后登录时间（使用 SQLAlchemy 2.0 原生写法，无 SQL 拼接）
+    :param db: 数据库会话
+    :param updates: 列表，每个元素为 (patient_id, timestamp_seconds)
+    """
+    if not updates:
+        return
+
+    # 提取 patient_id 列表用于 IN 条件
+    patient_ids = [pid for pid, _ in updates]
+
+    # 使用 case() 构造条件更新
+    # 等价于: CASE WHEN patient_id = 1 THEN FROM_UNIXTIME(ts1) WHEN ... END
+    case_stmt = case(
+        *[
+            (PatientLoginCode.patient_id == pid, func.from_unixtime(ts))
+            for pid, ts in updates
+        ],
+        else_=PatientLoginCode.update_time  # 不匹配则保持原值
+    )
+
+    stmt = (
+        update(PatientLoginCode)
+        .where(PatientLoginCode.patient_id.in_(patient_ids))
+        .values(update_time=case_stmt)
+    )
+
+    db.execute(stmt)
+    db.commit()
