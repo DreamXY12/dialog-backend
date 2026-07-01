@@ -64,6 +64,11 @@ REDIS_LOGIN_FLAG = "user:login_flag"         # String 临时锁，用于去重
 LOGIN_FLAG_EXPIRE = 60                       # 1分钟内不重复记录
 SYNC_INTERVAL = 300                           # 每300秒同步一次到 MySQL
 
+# 优化broadcast_online_status，减少对数据库的重复查询，通过 Redis 缓存护士-患者映射关系来提升性能
+# 护士-患者映射关系缓存
+REDIS_NURSE_PATIENTS_PREFIX = "nurse:patients:"   # 后接 nurse_id，存储 Set of patient_ids
+REDIS_PATIENT_NURSE_PREFIX = "patient:nurse:"     # 后接 patient_id，存储对应的 nurse_id
+
 async def init_redis_once():
     global redis
     if redis is not None:
@@ -80,6 +85,9 @@ async def init_redis_once():
     await redis.delete(REDIS_ONLINE_USER)
     await redis.delete(REDIS_USER_ROLE)
     await redis.delete(REDIS_SID_TO_USER)
+
+    # 预热护士-患者缓存
+    await warmup_nurse_patient_cache()
 
     asyncio.create_task(sync_last_seen_to_db())
     print("🔄 后台登录时间同步任务已启动")
@@ -121,6 +129,40 @@ async def sync_last_seen_to_db():
             logger.error(f"❌ 同步任务异常: {e}")
             await asyncio.sleep(5)
 
+# ==================== 护士-患者映射缓存辅助函数 ====================
+async def cache_patient_nurse(patient_id: int, nurse_id: int):
+    """缓存患者与护士的绑定关系"""
+    await redis.sadd(f"{REDIS_NURSE_PATIENTS_PREFIX}{nurse_id}", str(patient_id))
+    await redis.set(f"{REDIS_PATIENT_NURSE_PREFIX}{patient_id}", str(nurse_id))
+
+async def remove_patient_nurse_cache(patient_id: int, nurse_id: int):
+    """删除患者与护士的缓存关系（解除绑定时）"""
+    await redis.srem(f"{REDIS_NURSE_PATIENTS_PREFIX}{nurse_id}", str(patient_id))
+    await redis.delete(f"{REDIS_PATIENT_NURSE_PREFIX}{patient_id}")
+
+async def get_patient_nurse_id_from_cache(patient_id: str) -> str | None:
+    """从缓存获取患者的护士ID，如果没有则返回 None"""
+    return await redis.get(f"{REDIS_PATIENT_NURSE_PREFIX}{patient_id}")
+
+async def get_nurse_patient_ids_from_cache(nurse_id: str) -> List[str]:
+    """从缓存获取护士所有患者的ID列表"""
+    members = await redis.smembers(f"{REDIS_NURSE_PATIENTS_PREFIX}{nurse_id}")
+    return list(members) if members else []
+
+async def warmup_nurse_patient_cache():
+    """从数据库加载所有护士-患者绑定关系，写入 Redis 缓存"""
+    db = next(get_db())
+    try:
+        from sql.people_models import Patient
+        patients = db.query(Patient).filter(Patient.assigned_nurse_id.isnot(None)).all()
+        for p in patients:
+            if p.assigned_nurse_id:
+                await cache_patient_nurse(p.patient_id, p.assigned_nurse_id)
+        logger.info(f"✅ 已预热 {len(patients)} 条护士-患者绑定关系")
+    except Exception as e:
+        logger.error(f"❌ 预热护士-患者缓存失败: {e}")
+    finally:
+        db.close()
 
 # =========================
 # Socket.IO 服务
@@ -280,7 +322,7 @@ async def connect(sid, environ, auth):
     try:
         db: Session = next(get_db())
 
-        await broadcast_online_status(user_id, role, online=True, db=db)
+        await broadcast_online_status(user_id, role, online=True)
     finally:
         db.close()
 
@@ -308,7 +350,7 @@ async def disconnect(sid):
 
     db: Session = next(get_db())
     try:
-        await broadcast_online_status(user_id, role, online=False, db=db)
+        await broadcast_online_status(user_id, role, online=False)
     finally:
         db.close()
 
@@ -372,58 +414,84 @@ async def join_room(sid, data):
     finally:
         db.close()
 
+# @sio.event
+# async def get_patients_online_status(sid, data):
+#     """
+#     护士页面：获取【自己绑定的所有病人】，并标注在线状态
+#     病人来源 = 数据库绑定列表
+#     在线状态 = Redis 真实在线
+#     """
+#     nurse_id = data.get("user_id")
+#     if not nurse_id:
+#         return
+#
+#     db: Session = next(get_db())
+#     try:
+#         # ✅ 从数据库获取【该护士绑定的所有病人】（必须全部显示）
+#         patient_ids = await get_nurse_patient_ids(str(nurse_id), db)
+#         online_list = []
+#
+#         for pid in patient_ids:
+#             pid_str = str(pid)
+#             # ✅ 逐个判断 Redis 是否在线
+#             is_online = await redis.hexists(REDIS_ONLINE_USER, pid_str)
+#             online_list.append({
+#                 "user_id": pid_str,
+#                 "online": is_online
+#             })
+#
+#         # 推送给护士
+#         await sio.emit("patients_online", online_list, to=sid)
+#     finally:
+#         db.close()
+#
+# @sio.event
+# async def get_nurse_online_status(sid, data):
+#     """
+#     病人页面加载 → 获取自己护士的在线状态
+#     前端：emitNurseIsOnline
+#     """
+#     patient_id = data.get("user_id")
+#     if not patient_id:
+#         return
+#
+#     db: Session = next(get_db())
+#     try:
+#         nurse_id = await get_patient_nurse_id(patient_id, db)
+#         if not nurse_id:
+#             await sio.emit("nurse_online", {"nurse_online": False}, to=sid)
+#             return
+#
+#         is_online = await redis.hexists(REDIS_ONLINE_USER, nurse_id)
+#         await sio.emit("nurse_online", {"nurse_online": is_online}, to=sid)
+#     finally:
+#         db.close()
+
 @sio.event
 async def get_patients_online_status(sid, data):
-    """
-    护士页面：获取【自己绑定的所有病人】，并标注在线状态
-    病人来源 = 数据库绑定列表
-    在线状态 = Redis 真实在线
-    """
     nurse_id = data.get("user_id")
     if not nurse_id:
         return
 
-    db: Session = next(get_db())
-    try:
-        # ✅ 从数据库获取【该护士绑定的所有病人】（必须全部显示）
-        patient_ids = await get_nurse_patient_ids(str(nurse_id), db)
-        online_list = []
-
-        for pid in patient_ids:
-            pid_str = str(pid)
-            # ✅ 逐个判断 Redis 是否在线
-            is_online = await redis.hexists(REDIS_ONLINE_USER, pid_str)
-            online_list.append({
-                "user_id": pid_str,
-                "online": is_online
-            })
-
-        # 推送给护士
-        await sio.emit("patients_online", online_list, to=sid)
-    finally:
-        db.close()
+    patient_ids = await get_nurse_patient_ids_from_cache(nurse_id)
+    online_list = []
+    for pid in patient_ids:
+        is_online = await redis.hexists(REDIS_ONLINE_USER, pid)
+        online_list.append({"user_id": pid, "online": is_online})
+    await sio.emit("patients_online", online_list, to=sid)
 
 @sio.event
 async def get_nurse_online_status(sid, data):
-    """
-    病人页面加载 → 获取自己护士的在线状态
-    前端：emitNurseIsOnline
-    """
     patient_id = data.get("user_id")
     if not patient_id:
         return
 
-    db: Session = next(get_db())
-    try:
-        nurse_id = await get_patient_nurse_id(patient_id, db)
-        if not nurse_id:
-            await sio.emit("nurse_online", {"nurse_online": False}, to=sid)
-            return
-
-        is_online = await redis.hexists(REDIS_ONLINE_USER, nurse_id)
-        await sio.emit("nurse_online", {"nurse_online": is_online}, to=sid)
-    finally:
-        db.close()
+    nurse_id = await get_patient_nurse_id_from_cache(patient_id)
+    if not nurse_id:
+        await sio.emit("nurse_online", {"nurse_online": False}, to=sid)
+        return
+    is_online = await redis.hexists(REDIS_ONLINE_USER, nurse_id)
+    await sio.emit("nurse_online", {"nurse_online": is_online}, to=sid)
 
 # =========================
 # 发送消息 & AI 回复
@@ -1027,14 +1095,25 @@ async def mark_message_read(sid, data):
     finally:
         db.close()
 
-async def broadcast_online_status(user_id: str, role: str, online: bool, db):
+# async def broadcast_online_status(user_id: str, role: str, online: bool, db):
+#     data = {"user_id": user_id, "role": role, "online": online}
+#     if role == "patient":
+#         nid = await get_patient_nurse_id(user_id, db)
+#         if nid and await redis.hexists(REDIS_ONLINE_USER, nid):
+#             await sio.emit("user_online_status", data, to=await redis.hget(REDIS_ONLINE_USER, nid))
+#     else:
+#         pids = await get_nurse_patient_ids(user_id, db)
+#         for pid in pids:
+#             if await redis.hexists(REDIS_ONLINE_USER, pid):
+#                 await sio.emit("user_online_status", data, to=await redis.hget(REDIS_ONLINE_USER, pid))
+async def broadcast_online_status(user_id: str, role: str, online: bool):
     data = {"user_id": user_id, "role": role, "online": online}
     if role == "patient":
-        nid = await get_patient_nurse_id(user_id, db)
+        nid = await get_patient_nurse_id_from_cache(user_id)
         if nid and await redis.hexists(REDIS_ONLINE_USER, nid):
             await sio.emit("user_online_status", data, to=await redis.hget(REDIS_ONLINE_USER, nid))
-    else:
-        pids = await get_nurse_patient_ids(user_id, db)
+    else:  # nurse
+        pids = await get_nurse_patient_ids_from_cache(user_id)
         for pid in pids:
             if await redis.hexists(REDIS_ONLINE_USER, pid):
                 await sio.emit("user_online_status", data, to=await redis.hget(REDIS_ONLINE_USER, pid))
@@ -1116,13 +1195,22 @@ async def leave_room(sid, data):
     await sio.emit("nurse_leave", room=room_uuid)
 
 #護士如果更新了上下班時間，就給對應的病人通告
+# @sio.event
+# async def nurse_work_time_update(sid,data):
+#     nurse_id = data.get("nurse_id")
+#     if nurse_id:
+#         db = next(get_db())
+#         pids = await get_nurse_patient_ids(nurse_id, db)
+#         # 如果病人在綫就實時推送護士已經修改了工作時間
+#         for pid in pids:
+#             if await redis.hexists(REDIS_ONLINE_USER, pid):
+#                 await sio.emit("nurse_work_time_changed", data, to=await redis.hget(REDIS_ONLINE_USER, pid))
+
 @sio.event
-async def nurse_work_time_update(sid,data):
+async def nurse_work_time_update(sid, data):
     nurse_id = data.get("nurse_id")
     if nurse_id:
-        db = next(get_db())
-        pids = await get_nurse_patient_ids(nurse_id, db)
-        # 如果病人在綫就實時推送護士已經修改了工作時間
+        pids = await get_nurse_patient_ids_from_cache(str(nurse_id))
         for pid in pids:
             if await redis.hexists(REDIS_ONLINE_USER, pid):
                 await sio.emit("nurse_work_time_changed", data, to=await redis.hget(REDIS_ONLINE_USER, pid))
@@ -1145,8 +1233,22 @@ async def remove_patient(sid,data):
     if nurse_phone and patient_phone:
 
         db = next(get_db())
-        patient = unassign_patient_from_specific_nurse_by_phone(db, nurse_phone, patient_phone)
-        if not patient:
-            send_data = {"is_remove":True}
-            # 在线就直接通知不在线就通知不到
-            await sio.emit("patient_remove",data,to=await redis.hget(REDIS_ONLINE_USER,patient_id))
+        try:
+            # 这里只是做双保险，如果在对应的网络接口没有成功删除，这里还会再次否则就只会通知
+            patient, old_nurse_id = unassign_patient_from_specific_nurse_by_phone(
+                db, patient_phone, nurse_phone
+            )
+            if patient and old_nurse_id:
+                # 删除 Redis 缓存
+                await remove_patient_nurse_cache(patient.patient_id, old_nurse_id)
+                # 通知前端
+                if await redis.hexists(REDIS_ONLINE_USER, str(patient.patient_id)):
+                    await sio.emit("patient_remove", {"is_remove": True},
+                                   to=await redis.hget(REDIS_ONLINE_USER, str(patient.patient_id)))
+            elif patient is None:
+                # 如果patient为空就说明在网络接口中已经成功移除分配了，现在就直接通知就行了
+                await sio.emit("patient_remove", {"is_remove": True},
+                               to=await redis.hget(REDIS_ONLINE_USER, str(patient_id)))
+                pass
+        finally:
+            db.close()

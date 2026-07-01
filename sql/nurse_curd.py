@@ -3,7 +3,7 @@ import datetime
 
 from sqlalchemy.orm import Session
 from sql.people_models import Nurse, Patient,NurseWorkShift,ChatRoom
-from typing import Optional,Dict, Any,List
+from typing import Optional,Dict, Any,List,Tuple
 from sql.chat_histoty_curd import get_room_uuid_by_id
 from sqlalchemy.exc import SQLAlchemyError  # 导入异常类
 import pytz
@@ -173,7 +173,7 @@ def assign_patient_to_nurse_by_phone(
         # 1. 查询护士（获取nurse_id）
         nurse = db.query(Nurse).filter(Nurse.phone == nurse_phone).first()
         if not nurse:
-            print(f"分配失败：未找到手机号为{nurse_phone}的护士")
+            #print(f"分配失败：未找到手机号为{nurse_phone}的护士")
             return None
 
         # 2. 查询未分配护士的患者（过滤条件改为assigned_nurse_id）
@@ -182,13 +182,13 @@ def assign_patient_to_nurse_by_phone(
             Patient.assigned_nurse_id.is_(None)  # 🔴 修改1：字段替换
         ).first()
         if not patient:
-            print(f"分配失败：未找到手机号为{patient_phone}的未分配护士患者")
+            # print(f"分配失败：未找到手机号为{patient_phone}的未分配护士患者")
             return None
 
         # 3. 分配护士（赋值nurse_id而非手机号）
         patient.assigned_nurse_id = nurse.nurse_id  # 🔴 修改2：赋值ID而非手机号
-        db.commit()  # 🔴 显式提交事务（替代autocommit）
-        db.refresh(patient)  # 刷新对象获取最新数据
+        # db.commit()  # 🔴 显式提交事务（替代autocommit）
+        # db.refresh(patient)  # 刷新对象获取最新数据
         return patient
 
     except Exception as e:
@@ -236,9 +236,9 @@ def update_chat_room_nurse(
     chat_room.last_activity_time = datetime.datetime.now(tz=tz)  # 建议同步更新活跃时间
 
     # 提交事务
-    db.commit()
-    # 刷新对象（确保拿到最新数据）
-    db.refresh(chat_room)
+    # db.commit()
+    # # 刷新对象（确保拿到最新数据）
+    # db.refresh(chat_room)
 
     return chat_room
 
@@ -302,7 +302,7 @@ def unassign_patient_from_specific_nurse_by_phone(
         db: Session,
         patient_phone: str,
         nurse_phone: str
-) -> Optional[Patient]:
+) -> Tuple[Optional[Patient], Optional[int]]:
     """
     解除指定护士对指定患者的管理权限（按手机号）
     适配字段变更：Patient.assigned_nurse_id 关联 Nurse.nurse_id
@@ -313,14 +313,16 @@ def unassign_patient_from_specific_nurse_by_phone(
         nurse_phone: 护士手机号（带区号，如+85212345678）
 
     Returns:
-        解除分配后的 Patient 对象 | None（失败时）
+         解除指定护士对指定患者的管理权限（按手机号）
+        返回：(解除后的Patient对象, 原来的护士ID)
+        如果失败，返回 (None, None)
     """
     try:
         # 1. 验证护士是否存在，获取护士ID
         nurse = db.query(Nurse).filter(Nurse.phone == nurse_phone).first()
         if not nurse:
-            print(f"解除分配失败：未找到手机号为{nurse_phone}的护士")
-            return None
+            # print(f"解除分配失败：未找到手机号为{nurse_phone}的护士")
+            return None,None
 
         # 2. 验证患者是否存在，且当前归属该护士（核心修改：匹配assigned_nurse_id）
         patient = db.query(Patient).filter(
@@ -330,8 +332,10 @@ def unassign_patient_from_specific_nurse_by_phone(
 
         # 3. 患者不存在 或 不归该护士管理 → 返回 None
         if not patient:
-            print(f"解除分配失败：患者{patient_phone}不存在，或不归护士{nurse_phone}管理")
-            return None
+            # print(f"解除分配失败：患者{patient_phone}不存在，或不归护士{nurse_phone}管理")
+            return None,None
+
+        old_nurse_id = nurse.nurse_id  # 保存旧护士ID
 
         # 4. 解除分配（清空关联字段）
         patient.assigned_nurse_id = None  # 🔴 修改2：清空护士ID而非手机号
@@ -341,13 +345,13 @@ def unassign_patient_from_specific_nurse_by_phone(
         db.refresh(patient)
 
         # 6. 返回解除分配后的患者对象
-        return patient
+        return patient,old_nurse_id
 
     except Exception as e:
         # 异常时回滚事务，避免数据不一致
         db.rollback()
         print(f"解除患者分配失败: {str(e)}")  # 可替换为日志记录
-        return None
+        return None,None
 
 # def get_patients_by_nurse_paginated(
 #         db: Session,

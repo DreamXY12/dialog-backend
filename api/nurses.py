@@ -16,6 +16,7 @@ from datetime import time
 import pytz
 from datetime import date
 from sql.patient_report_service import get_patient_daily_chat_report
+from api.chat_server import cache_patient_nurse, remove_patient_nurse_cache
 
 # 初始化路由
 router = APIRouter(prefix="/nurses", tags=["nurses"])
@@ -126,13 +127,18 @@ async def unassign_patient_from_nurse(
         )
 
     # 调用curd层（需同步修改为按手机号解除分配）
-    patient = unassign_patient_from_specific_nurse_by_phone(db, patient_phone, nurse_phone)
+    patient,old_nurse_id = unassign_patient_from_specific_nurse_by_phone(db, patient_phone, nurse_phone)
 
     if not patient:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"解除分配失败，患者手机号 {patient_phone} 不是护士 {nurse_phone} 负责的患者"
         )
+
+    # 同步redis缓存
+    if patient and old_nurse_id:
+        await remove_patient_nurse_cache(patient.patient_id, old_nurse_id)
+
 
     return {
         "success": True,
@@ -210,6 +216,13 @@ async def batch_assign_patients_to_nurse(
 
             if patient:
                 update_chat_room_nurse(db,patient_id=patient.patient_id,new_nurse_id=patient.assigned_nurse_id)
+
+                # 提交当前事务
+                db.commit()
+                db.refresh(patient)  # 刷新获取最新数据
+
+                # 新增：更新 Redis 缓存
+                await cache_patient_nurse(patient.patient_id, patient.assigned_nurse_id)
 
                 results["success"].append({
                     "patient_id": patient.patient_id,
