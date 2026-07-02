@@ -28,7 +28,7 @@ DATABASE = get_parameter("rdb", "database") or "dialog"
 
 # 新增：isLocalDev 如果值为1则是本地测试，为0则到了服务器端
 ISLOCALDEV = get_parameter("dev", "isLocalDev")
-if ISLOCALDEV=="0":
+if ISLOCALDEV=="1":
     #这里只用修改HOST就行了，其余都不变
     HOST="diabetes-rds.cteaa20ag0h1.ap-southeast-1.rds.amazonaws.com"
     
@@ -38,11 +38,11 @@ SQLALCHEMY_DATABASE_URL = f"mysql+mysqlconnector://{USERNAME}:{PASSWORD}@{HOST}/
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     echo=False,
-    pool_size=30,
-    max_overflow=20,
+    pool_size=80,
+    max_overflow=40,
     pool_recycle=1800,      # 空闲连接超过30分钟自动回收
     pool_pre_ping=True,     # 每次从池中取连接前先 ping 一下
-    pool_timeout=20         # 等待连接的超时时间（秒）
+    pool_timeout=30         # 等待连接的超时时间（秒）
 )
 pool = engine.pool
 # ==============================
