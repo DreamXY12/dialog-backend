@@ -13,7 +13,6 @@ from datetime import datetime
 from sql.people_models import ConversationSession, ChatRoom
 from typing import Any
 from datetime import time
-import pytz
 from datetime import date
 from sql.patient_report_service import get_patient_daily_chat_report
 from api.chat_server import cache_patient_nurse, remove_patient_nurse_cache
@@ -338,8 +337,7 @@ def get_nurse_today_work_time(nurse_id: int, db: Session = Depends(get_db)):
         # ==============================================
         # ✅ 核心修复：强制用新加坡时区，不受系统影响
         # ==============================================
-        hk_tz = pytz.timezone("Asia/Hong_Kong")
-        now = datetime.now(hk_tz)  # 拿到新加坡当前时间
+        now = datetime.now()  # 拿到新加坡当前时间
         current_time = now.time()
 
         # 3. 核心判断：当前时间是否在护士工作时间区间内

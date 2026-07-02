@@ -88,15 +88,15 @@ def on_checkout(dbapi_connection, connection_record, connection_proxy):
 def on_checkin(dbapi_connection, connection_record):
     log_pool_state("归还", dbapi_connection)
 
-@event.listens_for(engine, "connect")
-def set_mysql_timezone(conn, connection_record):
-    """
-    强制 MySQL 连接使用东八区时间（香港/上海时间）
-    这样 create_time / update_time 自动正确，不再差8小时
-    """
-    cursor = conn.cursor()
-    cursor.execute("SET time_zone = '+08:00';")
-    cursor.close()
+# @event.listens_for(engine, "connect") 没作用
+# def set_mysql_timezone(conn, connection_record):
+#     """
+#     强制 MySQL 连接使用东八区时间（香港/上海时间）
+#     这样 create_time / update_time 自动正确，不再差8小时
+#     """
+#     cursor = conn.cursor()
+#     cursor.execute("SET time_zone = '+08:00';")
+#     cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

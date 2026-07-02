@@ -5,8 +5,6 @@ from datetime import date, datetime
 import re
 import enum
 from typing import Any
-import pytz
-tz = pytz.timezone("Asia/Hong_Kong")
 
 # 枚举类
 class Gender(str, enum.Enum):
@@ -202,7 +200,7 @@ class PatientResponse(BaseModel):
 
         # 计算年龄
         if self.date_of_birth:
-            today = datetime.now(tz=tz).date()
+            today = datetime.now().date()
             age = today.year - self.date_of_birth.year
             if (today.month, today.day) < (self.date_of_birth.month, self.date_of_birth.day):
                 age -= 1

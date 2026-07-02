@@ -6,8 +6,6 @@ from sql.people_models import Nurse, Patient,NurseWorkShift,ChatRoom
 from typing import Optional,Dict, Any,List,Tuple
 from sql.chat_histoty_curd import get_room_uuid_by_id
 from sqlalchemy.exc import SQLAlchemyError  # 导入异常类
-import pytz
-tz = pytz.timezone("Asia/Hong_Kong")
 
 def get_nurse_by_phone(db: Session, phone: str) -> Nurse | None:
     """按手机号查询护士（适配新模型）"""
@@ -233,7 +231,7 @@ def update_chat_room_nurse(
 
     # ====================== 2. 找到记录 → 执行更新 ======================
     chat_room.nurse_id = new_nurse_id
-    chat_room.last_activity_time = datetime.datetime.now(tz=tz)  # 建议同步更新活跃时间
+    chat_room.last_activity_time = datetime.datetime.now()  # 建议同步更新活跃时间
 
     # 提交事务
     # db.commit()

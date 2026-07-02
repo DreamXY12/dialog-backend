@@ -3,8 +3,6 @@ from sqlalchemy import desc
 from typing import Optional, List, Tuple
 from .admin_models import Admin, AdminRole
 from datetime import datetime
-import pytz
-tz = pytz.timezone("Asia/Hong_Kong")
 
 def get_admin_by_username(db: Session, username: str) -> Optional[Admin]:
     """根据用户名查询管理员"""
@@ -53,7 +51,7 @@ def update_last_login(db: Session, admin_id: int):
     """更新最后登录时间"""
     admin = get_admin_by_id(db, admin_id)
     if admin:
-        admin.last_login = datetime.now(tz)  # 需导入 datetime
+        admin.last_login = datetime.now()  # 需导入 datetime
         db.commit()
         return admin
     return None

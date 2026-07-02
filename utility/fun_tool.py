@@ -3,8 +3,6 @@ from datetime import timedelta, datetime
 from typing import Optional
 from jose import  jwt,JWTError
 from config import get_parameter
-import pytz
-tz = pytz.timezone("Asia/Hong_Kong")
 
 
 # JWT配置（固定值，生产环境建议移到环境变量）
@@ -20,9 +18,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     """生成JWT Token（有效期3天）"""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.now(tz) + expires_delta
+        expire = datetime.now() + expires_delta
     else:
-        expire = datetime.now(tz) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt

@@ -21,9 +21,6 @@ router = APIRouter(prefix="/patients", tags=["patient"])
 
 logger = logging.getLogger(__name__)
 
-import pytz
-tz = pytz.timezone("Asia/Hong_Kong")
-
 # 更新患者体重
 class PatientWeightUpdate(BaseModel):
     """更新体重的请求体模型（匹配你的代码风格）"""
@@ -452,11 +449,11 @@ async def add_blood_glucose_record(
                 logger.info(f"解析时间成功: {recorded_at}")
             except Exception as e:
                 logger.error(f"时间格式错误: {e}")
-                recorded_at = datetime.now(tz=tz)
+                recorded_at = datetime.now()
                 logger.info(f"使用当前时间: {recorded_at}")
         elif recorded_at is None:
             from datetime import datetime
-            recorded_at = datetime.now(tz=tz)
+            recorded_at = datetime.now()
             logger.info(f"使用当前时间: {recorded_at}")
 
         logger.info(

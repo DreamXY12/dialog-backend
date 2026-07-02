@@ -29,9 +29,6 @@ import logging
 # 配置日志（非常重要）
 logger = logging.getLogger(__name__)
 
-import pytz
-tz = pytz.timezone("Asia/Hong_Kong")
-
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from sql.chat_histoty_curd import (
@@ -250,7 +247,7 @@ async def create_new_session(room_id: str, user_id: str, role: str, db: Session,
         session_number=session_number,
         session_type=session_type,
         session_status=SessionStatus.ACTIVE,
-        start_time=datetime.now(tz=tz),
+        start_time=datetime.now(),
         nurse_shift_id=nurse_shift_id
     )
     db.add(new_session)

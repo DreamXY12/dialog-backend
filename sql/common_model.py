@@ -1,10 +1,12 @@
 # 共用模型
 
-from sqlalchemy import Column, Integer, String, Text, DateTime
+from sqlalchemy import Column, Integer, String, Text, DateTime,func
 from datetime import datetime
 from sql.start import Base
-import pytz
-tz = pytz.timezone("Asia/Hong_Kong")
+
+# 定义工厂函数，每次插入自动执行
+
+
 
 # 病人和护士共用的反馈数据库
 class Feedback(Base):
@@ -23,4 +25,4 @@ class Feedback(Base):
 
     ai_context = Column(Text, nullable=True)
 
-    create_time = Column(DateTime, default=datetime.now(tz=tz))
+    create_time = Column(DateTime, default=func.now())
