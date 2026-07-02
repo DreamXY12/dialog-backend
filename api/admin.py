@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, desc, and_
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime,timedelta
 from pydantic import BaseModel
 from sqlalchemy import desc
 from sql.common_model import Feedback
@@ -307,3 +307,44 @@ async def get_feedback_user(
         "role": feedback.role,
         "name": name
     }
+
+from sql.people_models import Patient, PatientLoginCode
+
+@router.get("/inactive-patients")
+async def get_inactive_patients(
+    days: int = Query(3, ge=1, le=30, description="超过多少天未登录"),
+    db: Session = Depends(get_db)
+):
+    """
+    获取超过指定天数未登录（基于 patient_login_code.update_time）的患者列表
+    返回姓名、电话、最后登录时间
+    """
+    now_tz = datetime.now()
+    cutoff_time = now_tz - timedelta(days=days)
+
+    # 关联查询：patient_login_code 和 patient
+    results = db.query(
+        Patient.patient_id,
+        Patient.first_name,
+        Patient.last_name,
+        Patient.phone,
+        PatientLoginCode.update_time
+    ).join(
+        PatientLoginCode,
+        Patient.patient_id == PatientLoginCode.patient_id
+    ).filter(
+        PatientLoginCode.update_time < cutoff_time
+    ).order_by(
+        desc(PatientLoginCode.update_time)
+    ).all()
+
+    data = []
+    for row in results:
+        data.append({
+            "patient_id": row.patient_id,
+            "full_name": f"{row.first_name} {row.last_name}".strip(),
+            "phone": row.phone,
+            "last_active": row.update_time.isoformat() if row.update_time else None,
+        })
+
+    return {"total": len(data), "data": data}
