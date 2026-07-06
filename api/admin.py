@@ -10,7 +10,7 @@ from sql.common_model import Feedback
 from sql.start import get_db
 from sql.people_models import (
     Patient, Nurse, ChatRoom, ConversationSession,
-    Message, PatientLoginCode, NurseWorkShift
+    Message, PatientLoginCode, NurseWorkShift,NurseLoginCode
 )
 from sql.chat_histoty_curd import get_chat_room_by_uuid
 
@@ -348,3 +348,97 @@ async def get_inactive_patients(
         })
 
     return {"total": len(data), "data": data}
+
+# 1. 查找患者（按完整手机号）
+@router.get("/patients/lookup")
+async def lookup_patient(phone: str = Query(..., description="完整手机号，如+85212345678"),
+                         db: Session = Depends(get_db)):
+    patient = db.query(Patient).filter(Patient.phone == phone).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="未找到该患者")
+    return {
+        "patient_id": patient.patient_id,
+        "phone": patient.phone,
+        "full_name": patient.full_name
+    }
+
+# 2. 删除患者
+@router.delete("/patients/{patient_id}")
+async def delete_patient(patient_id: int, db: Session = Depends(get_db)):
+    patient = db.query(Patient).filter(Patient.patient_id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="患者不存在")
+    db.delete(patient)
+    db.commit()
+    return {"message": f"患者 {patient.full_name} 已删除"}
+
+# 3. 查找护士
+@router.get("/nurses/lookup")
+async def lookup_nurse(phone: str = Query(..., description="完整手机号，如+85212345678"),
+                       db: Session = Depends(get_db)):
+    nurse = db.query(Nurse).filter(Nurse.phone == phone).first()
+    if not nurse:
+        raise HTTPException(status_code=404, detail="未找到该护士")
+    return {
+        "nurse_id": nurse.nurse_id,
+        "phone": nurse.phone,
+        "full_name": nurse.full_name
+    }
+
+# 4. 删除护士
+@router.delete("/nurses/{nurse_id}")
+async def delete_nurse(nurse_id: int, db: Session = Depends(get_db)):
+    nurse = db.query(Nurse).filter(Nurse.nurse_id == nurse_id).first()
+    if not nurse:
+        raise HTTPException(status_code=404, detail="护士不存在")
+    db.delete(nurse)
+    db.commit()
+    return {"message": f"护士 {nurse.full_name} 已删除"}
+
+# 5. 获取未使用的患者登录码（patient_id 为 NULL）
+@router.get("/unused-patient-codes")
+async def get_unused_patient_codes(db: Session = Depends(get_db)):
+    codes = db.query(PatientLoginCode).filter(PatientLoginCode.patient_id == None).all()
+    return [
+        {
+            "id": c.id,
+            "login_code_hash": c.login_code_hash,
+            "is_active": c.is_active,
+            "create_time": c.create_time.isoformat() if c.create_time else None,
+        }
+        for c in codes
+    ]
+
+# 6. 删除患者登录码
+@router.delete("/patient-codes/{code_id}")
+async def delete_patient_code(code_id: int, db: Session = Depends(get_db)):
+    code = db.query(PatientLoginCode).filter(PatientLoginCode.id == code_id).first()
+    if not code:
+        raise HTTPException(status_code=404, detail="登录码不存在")
+    db.delete(code)
+    db.commit()
+    return {"message": "患者登录码已删除"}
+
+# 7. 获取未使用的护士登录码（nurse_id 为 NULL）
+@router.get("/unused-nurse-codes")
+async def get_unused_nurse_codes(db: Session = Depends(get_db)):
+    codes = db.query(NurseLoginCode).filter(NurseLoginCode.nurse_id == None).all()
+    return [
+        {
+            "id": c.id,
+            "login_code_hash": c.login_code_hash,
+            "is_active": c.is_active,
+            "create_time": c.create_time.isoformat() if c.create_time else None,
+        }
+        for c in codes
+    ]
+
+# 8. 删除护士登录码
+@router.delete("/nurse-codes/{code_id}")
+async def delete_nurse_code(code_id: int, db: Session = Depends(get_db)):
+    code = db.query(NurseLoginCode).filter(NurseLoginCode.id == code_id).first()
+    if not code:
+        raise HTTPException(status_code=404, detail="登录码不存在")
+    db.delete(code)
+    db.commit()
+    return {"message": "护士登录码已删除"}
