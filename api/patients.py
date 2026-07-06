@@ -402,8 +402,8 @@ async def add_blood_glucose_record(
 ):
     """添加血糖记录"""
     try:
-        logger.info(f"接收到添加血糖记录请求: {record}")
-        logger.info(f"当前用户信息: {current_user}")
+        # logger.info(f"接收到添加血糖记录请求: {record}")
+        # logger.info(f"当前用户信息: {current_user}")
 
         # 验证必填字段
         if 'value' not in record or record['value'] is None:
@@ -423,9 +423,9 @@ async def add_blood_glucose_record(
         # 验证血糖值格式
         try:
             glucose_value = float(record['value'])
-            logger.info(f"验证血糖值: {glucose_value}")
+            #logger.info(f"验证血糖值: {glucose_value}")
         except (ValueError, TypeError):
-            logger.error(f"血糖值格式错误: {record['value']}")
+            #logger.error(f"血糖值格式错误: {record['value']}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="血糖值必须是数字"
@@ -446,18 +446,18 @@ async def add_blood_glucose_record(
             try:
                 from datetime import datetime
                 recorded_at = datetime.fromisoformat(recorded_at)
-                logger.info(f"解析时间成功: {recorded_at}")
+                #logger.info(f"解析时间成功: {recorded_at}")
             except Exception as e:
                 logger.error(f"时间格式错误: {e}")
                 recorded_at = datetime.now()
-                logger.info(f"使用当前时间: {recorded_at}")
+                #logger.info(f"使用当前时间: {recorded_at}")
         elif recorded_at is None:
             from datetime import datetime
             recorded_at = datetime.now()
-            logger.info(f"使用当前时间: {recorded_at}")
+            #logger.info(f"使用当前时间: {recorded_at}")
 
-        logger.info(
-            f"准备创建血糖记录: patient_login_code={current_user['patient_phone']}, value={glucose_value}, period={record['period']}, recorded_at={recorded_at}")
+        # logger.info(
+        #     f"准备创建血糖记录: patient_login_code={current_user['patient_phone']}, value={glucose_value}, period={record['period']}, recorded_at={recorded_at}")
 
         new_record = BloodGlucoseRecord(
             patient_phone=current_user['patient_phone'],
@@ -466,18 +466,18 @@ async def add_blood_glucose_record(
             recorded_at=recorded_at
         )
 
-        logger.info(f"创建BloodGlucoseRecord对象成功")
+        #logger.info(f"创建BloodGlucoseRecord对象成功")
 
         db.add(new_record)
-        logger.info("添加到数据库会话")
+        #logger.info("添加到数据库会话")
 
         db.commit()
-        logger.info("数据库提交成功")
+        #logger.info("数据库提交成功")
 
         db.refresh(new_record)
-        logger.info(f"刷新对象成功: id={new_record.id}")
+        #logger.info(f"刷新对象成功: id={new_record.id}")
 
-        logger.info(f"血糖记录添加成功: id={new_record.id}, value={new_record.value}")
+        #logger.info(f"血糖记录添加成功: id={new_record.id}, value={new_record.value}")
 
         return {
             "success": True,
