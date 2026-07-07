@@ -215,6 +215,13 @@ class Patient(TimeStampMixIn, Base):
         unique=True,  # 添加唯一约束
         comment='患者手机号（带区号，如+85212345678，唯一）'
     )
+
+    subject_code: Mapped[Optional[str]] = mapped_column(
+        String(4),
+        nullable=True,
+        comment='受试者编号'
+    )
+
     phone_area_code: Mapped[Optional[str]] = mapped_column(
         String(10),
         nullable=True,

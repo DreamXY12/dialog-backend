@@ -43,6 +43,7 @@ class PatientInfo(BaseModel):
     last_login: Optional[datetime]
     assigned_nurse_id: Optional[int]
     assigned_nurse_name: Optional[str]
+    subject_code: Optional[str] = None
 
 class MessageResponse(BaseModel):
     message_uuid: str
@@ -147,6 +148,7 @@ async def list_patients(
             "last_login": login_codes.get(patient.patient_id),
             "assigned_nurse_id": patient.assigned_nurse_id,
             "assigned_nurse_name": nurse_name,
+            "subject_code": patient.subject_code,
         })
     return result
 

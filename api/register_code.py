@@ -29,6 +29,12 @@ class BaseRegisterRequest(BaseModel):
 
 class PatientRegisterRequest(BaseRegisterRequest):
     assigned_nurse_id: Optional[int] = Field(None, description="負責護士ID")
+    subject_code: str = Field(
+        ...,
+        min_length=4,
+        max_length=4,
+        description="受试者编号（4位）"
+    )
 
 class NurseRegisterRequest(BaseRegisterRequest):
     pass
@@ -94,12 +100,13 @@ def verify_plain_login_code(
 # ---------------------------
 # 4. 建立使用者函數
 # ---------------------------
-def create_patient_record(db: Session, phone: str, first_name: str, last_name: str, phone_area_code: Optional[str] = None, assigned_nurse_id: Optional[int] = None):
+def create_patient_record(db: Session, phone: str, first_name: str, last_name: str, phone_area_code: Optional[str] = None, assigned_nurse_id: Optional[int] = None,subject_code: Optional[str] = None):
     existing = db.query(Patient).filter(Patient.phone == phone).first()
     if existing:
         return None
     new_patient = Patient(
         phone=phone,
+        subject_code=subject_code,
         phone_area_code=phone_area_code,
         first_name=first_name,
         last_name=last_name,
@@ -158,7 +165,8 @@ async def register_patient(
             first_name=request.first_name,
             last_name=request.last_name,
             phone_area_code=request.phone_area_code,
-            assigned_nurse_id=request.assigned_nurse_id
+            assigned_nurse_id=request.assigned_nurse_id,
+            subject_code=request.subject_code
         )
         if not patient:
             raise HTTPException(status_code=400, detail="註冊失敗")
