@@ -104,6 +104,11 @@ def create_patient_record(db: Session, phone: str, first_name: str, last_name: s
     existing = db.query(Patient).filter(Patient.phone == phone).first()
     if existing:
         return None
+        # 新增：检查受试者编号是否已存在（如果不为空）
+    if subject_code:
+        existing_code = db.query(Patient).filter(Patient.subject_code == subject_code).first()
+        if existing_code:
+            return None  # 或者直接抛出异常，由上层捕获
     new_patient = Patient(
         phone=phone,
         subject_code=subject_code,
@@ -169,7 +174,7 @@ async def register_patient(
             subject_code=request.subject_code
         )
         if not patient:
-            raise HTTPException(status_code=400, detail="註冊失敗")
+            raise HTTPException(status_code=400, detail="註冊失敗，請檢查手機號或受試者編號是否重複")
 
         # 4. 綁定登入密碼到病患
         code_record.patient_id = patient.patient_id
