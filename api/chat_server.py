@@ -167,6 +167,7 @@ async def warmup_nurse_patient_cache():
 allowed_origins = [
     "http://localhost:5173",
     "https://dialog.polyusn.com"
+    "http://ec2-18-141-14-49.ap-southeast-1.compute.amazonaws.com:8081"
 ]
 
 sio = socketio.AsyncServer(
