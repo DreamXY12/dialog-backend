@@ -1,7 +1,7 @@
 # 病人，护士，验证码的sql模型，利用SQLAlchemy
 
 from __future__ import annotations
-from sqlalchemy import Boolean,Text,Time,text,BigInteger,TIMESTAMP,Column
+from sqlalchemy import Boolean,Text,Time,text,BigInteger,TIMESTAMP,Column,UniqueConstraint
 import datetime
 from datetime import datetime,date
 from sqlalchemy import BIGINT, INT, VARCHAR, DATETIME
@@ -296,6 +296,14 @@ class Patient(TimeStampMixIn, Base):
         ),
         nullable=True,
         comment='负责护士ID（关联nurse.nurse_id）'  # 更新注释
+    )
+
+    # ====================== 新增字段，紧跟assigned\_nurse\_id下方 ======================
+    is_week9_questionnaire_completed: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment='第九周整合问卷是否已完成:0=未完成,1=已完成'
     )
 
     # 🔴 修改3：保持关系映射不变（字段名变了但关系逻辑不变）
@@ -1248,3 +1256,186 @@ class FoodImage(Base):
     remark:Mapped[str] = mapped_column(VARCHAR(300), nullable=True)
     upload_timestamp: Mapped[datetime] = mapped_column(DATETIME, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DATETIME, default=datetime.now())
+
+class PatientWeek9Questionnaire(TimeStampMixIn, Base):
+    """患者第九周整合问卷-基础健康主表"""
+    __tablename__ = "patient_week9_questionnaire"
+
+    __table_args__ = (
+        # 一人仅一份问卷
+        UniqueConstraint("patient_id", name="uk_patient_week9"),
+        {
+            "comment": "患者第九周整合问卷-基础健康行为主表",
+            "mysql_engine": "InnoDB",
+            "mysql_charset": "utf8mb4",
+            "mysql_collate": "utf8mb4_unicode_ci",
+        },
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="问卷主键ID"
+    )
+
+    patient_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("patient.patient_id", ondelete="CASCADE", onupdate="CASCADE"),
+        nullable=False,
+        comment="关联患者ID"
+    )
+
+    # 基础必填字段
+    assessment_date: Mapped[str] = mapped_column(
+        String(20), nullable=False, comment="评估日期 DD-MM-YYYY"
+    )
+
+    body_weight: Mapped[float | None] = mapped_column(
+        DECIMAL(5, 2), nullable=True, comment="体重(kg)"
+    )
+
+    # 运动枚举
+    cardio_exercise_per_week: Mapped[str | None] = mapped_column(
+        Enum(
+            "No exercise",
+            "Less than 1 hour",
+            "1-2 hours",
+            "2-3 hours",
+            "3 hours or more"
+        ),
+        nullable=True,
+        comment="每周有氧运动量"
+    )
+
+    muscle_strengthen_per_week: Mapped[str | None] = mapped_column(
+        Enum(
+            "No exercise",
+            "Less than 1 hour",
+            "1-2 hours",
+            "2-3 hours",
+            "3 hours or more"
+        ),
+        nullable=True,
+        comment="每周肌力训练量"
+    )
+
+    # 饮酒枚举
+    alcohol_use: Mapped[str | None] = mapped_column(
+        Enum("Non-drinker", "Ex-drinker", "Social drinker", "Chronic drinker"),
+        nullable=True,
+        comment="饮酒习惯"
+    )
+
+    # 吸烟枚举
+    smoking: Mapped[str | None] = mapped_column(
+        Enum("Never", "Ex-smoker", "Smoker"),
+        nullable=True,
+        comment="吸烟状态"
+    )
+
+    # Yes / No
+    healthy_diet_habit: Mapped[str | None] = mapped_column(Enum("Yes", "No"), nullable=True, comment="健康饮食习惯")
+    attempt_quit_smoking: Mapped[str | None] = mapped_column(Enum("Yes", "No","Not applicable"), nullable=True, comment="尝试戒烟")
+    attempt_manage_weight: Mapped[str | None] = mapped_column(Enum("Yes", "No"), nullable=True, comment="尝试控制体重")
+
+    # Yes / No / Not applicable
+    self_monitor_bp: Mapped[str | None] = mapped_column(Enum("Yes", "No", "Not applicable"), nullable=True, comment="血压自我监测")
+    self_monitor_bg: Mapped[str | None] = mapped_column(Enum("Yes", "No", "Not applicable"), nullable=True, comment="血糖自我监测")
+
+    # 关联答题明细表
+    dm_answers: Mapped[list["QuestionnaireDMAnswer"]] = relationship(
+        back_populates="questionnaire", cascade="all, delete-orphan"
+    )
+    ht_answers: Mapped[list["QuestionnaireHTAnswer"]] = relationship(
+        back_populates="questionnaire", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self):
+        return f"<PatientWeek9Questionnaire(id={self.id}, patient_id={self.patient_id})>"
+
+
+
+class QuestionnaireDMAnswer(TimeStampMixIn, Base):
+    """第九周问卷-糖尿病题目答题明细"""
+    __tablename__ = "questionnaire_dm_answer"
+
+    __table_args__ = (
+        UniqueConstraint("questionnaire_id", "question_id", name="uk_question_qid"),
+        {
+            "comment": "第九周问卷-糖尿病题目答题明细",
+            "mysql_engine": "InnoDB",
+            "mysql_charset": "utf8mb4",
+            "mysql_collate": "utf8mb4_unicode_ci",
+        },
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="主键ID"
+    )
+
+    questionnaire_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("patient_week9_questionnaire.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="关联第九周问卷主表ID"
+    )
+
+    question_id: Mapped[str] = mapped_column(
+        String(30), nullable=False, comment="题目ID(q_dm_1 ~ q_dm_5)"
+    )
+
+    answer: Mapped[str | None] = mapped_column(
+        Enum("a", "b", "c", "d", "e"),
+        nullable=True,
+        comment="用户所选答案"
+    )
+
+    # 反向关联主表
+    questionnaire: Mapped["PatientWeek9Questionnaire"] = relationship(
+        back_populates="dm_answers"
+    )
+
+    def __repr__(self):
+        return f"<QuestionnaireDMAnswer(qid={self.question_id}, ans={self.answer})>"
+
+
+class QuestionnaireHTAnswer(TimeStampMixIn, Base):
+    """第九周问卷-高血压题目答题明细"""
+    __tablename__ = "questionnaire_ht_answer"
+
+    __table_args__ = (
+        UniqueConstraint("questionnaire_id", "question_id", name="uk_question_qid"),
+        {
+            "comment": "第九周问卷-高血压题目答题明细",
+            "mysql_engine": "InnoDB",
+            "mysql_charset": "utf8mb4",
+            "mysql_collate": "utf8mb4_unicode_ci",
+        },
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="主键ID"
+    )
+
+    questionnaire_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("patient_week9_questionnaire.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="关联第九周问卷主表ID"
+    )
+
+    question_id: Mapped[str] = mapped_column(
+        String(30), nullable=False, comment="题目ID(q_ht_1 ~ q_ht_5)"
+    )
+
+    answer: Mapped[str | None] = mapped_column(
+        Enum("a", "b", "c", "d", "e"),
+        nullable=True,
+        comment="用户所选答案"
+    )
+
+    # 反向关联主表
+    questionnaire: Mapped["PatientWeek9Questionnaire"] = relationship(
+        back_populates="ht_answers"
+    )
+
+    def __repr__(self):
+        return f"<QuestionnaireHTAnswer(qid={self.question_id}, ans={self.answer})>"
