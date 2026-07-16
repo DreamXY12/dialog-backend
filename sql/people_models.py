@@ -20,6 +20,13 @@ from sqlalchemy.orm import (
 from sqlalchemy.dialects.mysql import JSON
 
 from sqlalchemy.types import Date as SqlDate
+from enum import StrEnum
+import re
+from sqlalchemy import or_
+# 新增枚举：护士账号类型
+class NurseAccountType(StrEnum):
+    OFFICIAL = "official"  # 正式账号
+    TEST = "test"         # 测试账号
 
 # 在枚举类定义区域添加
 class ReaderRole(str, enum.Enum):
@@ -127,6 +134,14 @@ class Nurse(TimeStampMixIn, Base):
         comment='名字'
     )
 
+    # ========== 新增账号类型字段 ==========
+    account_type: Mapped[NurseAccountType] = mapped_column(
+        Enum(NurseAccountType, values_callable=lambda e: [i.value for i in e]),
+        nullable=False,
+        default=NurseAccountType.OFFICIAL,
+        comment='护士账号类型：official正式账号 / test测试账号'
+    )
+
     # 关系：一个护士对应多个患者（一对多）
     patients: Mapped[List["Patient"]] = relationship(
         back_populates="nurse",
@@ -159,6 +174,24 @@ class Nurse(TimeStampMixIn, Base):
         """获取护士完整姓名"""
         return f"{self.first_name} {self.last_name}"
 
+    @staticmethod
+    def get_visible_patient_filter(nurse_id: int, nurse_account_type: NurseAccountType):
+        """
+        根据护士账号类型，返回病人过滤条件
+        正式护士：仅 R+3位数字 subject_code
+        测试护士：排除 R+3位数字 subject_code
+        """
+        from sqlalchemy import and_
+
+        base_filter = Patient.assigned_nurse_id == nurse_id
+        if nurse_account_type == NurseAccountType.OFFICIAL:
+            # 正式护士：匹配 ^R\d{3}$
+            type_filter = Patient.subject_code.regexp(r'^R\d{3}$')
+        else:
+            # 测试护士：不匹配正则，包含空、其他编号
+            type_filter = ~Patient.subject_code.regexp(r'^R\d{3}$')
+        return and_(base_filter, type_filter)
+
     def __repr__(self):
         return f"<Nurse(nurse_id={self.nurse_id}, phone={self.phone}, full_name={self.full_name})>"
 
@@ -178,6 +211,13 @@ class NurseLoginCode(Base):
     update_time: Mapped[TIMESTAMP] = mapped_column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
     nurse: Mapped["Nurse"] = relationship("Nurse", back_populates="login_code")
+
+    # 新增临时账号类型字段
+    temp_account_type = Column(
+        String(20),
+        nullable=True,
+        comment="护士注册临时账号类型:official/test，注册完成后迁移至nurse表"
+    )
 
 # ---------------------------
 # 患者表模型（完全匹配patient表结构）
@@ -318,6 +358,29 @@ class Patient(TimeStampMixIn, Base):
     #     lazy="selectin"
     # )
 
+    # ========== 新增判断属性：是否为正式受试者病人 ==========
+    @property
+    def is_official_subject(self) -> bool:
+        """本地内存判断单条病人是否正式受试者"""
+        if not self.subject_code:
+            return False
+        pattern = re.compile(r'^R\d{3}$')
+        return bool(pattern.match(self.subject_code))
+
+    @staticmethod
+    def official_subject_sql_filter():
+        """同步Session可用的正式受试者过滤条件"""
+        return func.regexp_like(Patient.subject_code, r'^R\d{3}$')
+
+
+    @staticmethod
+    def test_subject_sql_filter():
+        """同步Session可用的测试病人过滤条件"""
+        # 测试病人：为空 或 不匹配正则
+        return or_(
+            Patient.subject_code.is_(None),
+            ~func.regexp_like(Patient.subject_code, r'^R\d{3}$')
+        )
     # 计算属性（无修改）
     @property
     def full_name(self):

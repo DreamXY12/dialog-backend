@@ -16,6 +16,7 @@ from datetime import time
 from datetime import date
 from sql.patient_report_service import get_patient_daily_chat_report
 from api.chat_server import cache_patient_nurse, remove_patient_nurse_cache
+from sql.people_models import NurseAccountType,Patient
 
 # 初始化路由
 router = APIRouter(prefix="/nurses", tags=["nurses"])
@@ -36,33 +37,50 @@ async def get_unassigned_patients_for_nurse(
     nurse_phone: str = Path(..., description="护士手机号"),
     page: int = Query(1, ge=1, description="页码，从1开始"),
     page_size: int = Query(20, ge=1, le=100, description="每页记录数"),
-    search: str = Query(None, description="搜索关键词"),
+    search: Optional[str] = Query(None, description="搜索关键词"),
     db: Session = Depends(get_db)
 ):
     """
-    获取该护士可以分配的未分配患者（替换为手机号）
+    获取该护士可以分配的未分配患者
+    权限规则：
+    1. 正式护士 → 仅展示未分配正式受试者（R+3位subject_code）
+    2. 测试护士 → 仅展示未分配测试病人
     """
     try:
-        # 调用curd层（需同步修改为按手机号查询）
-        result = get_patients_without_nurse_paginated_by_phone(
-            db, page, page_size, search
-        )
+        nurse = db.query(Nurse).filter(Nurse.phone == nurse_phone).first()
+        if not nurse:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="护士账号不存在")
 
-        # 获取护士信息
-        nurse = db.query(Nurse).filter(Nurse.phone == nurse_phone).first()  # 替换 login_code 为 phone
-        nurse_name = nurse.full_name if nurse else None
+        # 复用Patient模型内置过滤方法
+        if nurse.account_type == NurseAccountType.OFFICIAL:
+            filter_rule = Patient.official_subject_sql_filter()
+        else:
+            filter_rule = Patient.test_subject_sql_filter()
+
+        result = get_patients_without_nurse_paginated_by_phone(
+            db=db,
+            page=page,
+            page_size=page_size,
+            search=search,
+            custom_filter=filter_rule
+        )
 
         return {
             "success": True,
-            "nurse_phone": nurse_phone,  # 替换 nurse_login_code
-            "nurse_name": nurse_name,
+            "nurse_phone": nurse_phone,
+            "nurse_name": nurse.full_name,
+            "nurse_account_type": nurse.account_type,
             "data": result
         }
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"获取未分配患者失败: {str(e)}"
         )
+
 
 
 @router.post("/{nurse_phone}/assign-patient/{patient_phone}")

@@ -29,6 +29,8 @@ class LoginCodeRequest(BaseModel):
     phone: str = Field(..., description="帶國際區號的手機號（如+85212345678）")
     role: str = Field(..., pattern="^(patient|nurse)$", description="使用者角色：patient/nurse")
     mode: str = Field(..., pattern="^(login|register|reset)$", description="用途：register / reset")
+    # 新增可选参数
+    account_type: Optional[str] = None
 
 # ---------------------------
 # 工具函数（4位码生成，移除加密）
@@ -51,7 +53,7 @@ def generate_unique_login_code(db: Session) -> str:
             return code
 
 # ---------------------------
-# 主接口：获取/重置 4位登录码
+# 主接口：获取/重置 4位登录码（已改造支持护士账号类型）
 # ---------------------------
 @router.post("/generate", status_code=status.HTTP_200_OK)
 async def generate_login_code(
@@ -61,11 +63,20 @@ async def generate_login_code(
     phone = request.phone
     role = request.role
     mode = request.mode
+    account_type = request.account_type
 
     try:
-        # ==============================================
-        # 1. 註冊模式：必須確保【手機號未註冊】才能生成碼
-        # ==============================================
+        # 仅护士注册时校验account_type，其余场景清空忽略
+        if mode == "register" and role == "nurse":
+            if not account_type or account_type not in ("official", "test"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="护士注册必须指定账号类型(official/test)"
+                )
+        else:
+            account_type = None
+
+        # 1. 注册模式：手机号不能已存在
         if mode == "register":
             if role == "patient":
                 exists = get_patient_by_phone(db, phone)
@@ -76,9 +87,7 @@ async def generate_login_code(
                 if exists:
                     raise HTTPException(status_code=400, detail="護士手機號已註冊，請直接登入")
 
-        # ==============================================
-        # 2. 重置模式：必須確保【手機號已註冊】才能重置
-        # ==============================================
+        # 2. 重置模式：手机号必须已注册
         elif mode == "reset":
             if role == "patient":
                 user = get_patient_by_phone(db, phone)
@@ -91,20 +100,15 @@ async def generate_login_code(
                     raise HTTPException(status_code=400, detail="護士手機號未註冊")
                 user_id = user.nurse_id
 
-        # ==============================================
-        # 3. 生成唯一 4 位碼
-        # ==============================================
+        # 3. 生成4位唯一登录码
         plain_code = generate_unique_login_code(db)
 
-        # ==============================================
-        # 4. 保存 or 更新 登錄碼（直接存明文）
-        # ==============================================
+        # 4. 新增/更新登录码记录
         if role == "patient":
-            # 註冊模式
             if mode == "register":
                 code_record = PatientLoginCode(
                     patient_id=None,
-                    login_code_hash=plain_code,  # 直接存明文
+                    login_code_hash=plain_code,
                     is_active=True
                 )
                 db.add(code_record)
@@ -113,38 +117,37 @@ async def generate_login_code(
                     "login_code": plain_code,
                     "message": "病患登錄碼生成成功"
                 }
-
-            # 重置模式
             elif mode == "reset":
                 record = db.query(PatientLoginCode).filter(PatientLoginCode.patient_id == user_id).first()
                 if not record:
                     raise HTTPException(status_code=404, detail="未找到該病患的登錄碼")
-                record.login_code_hash = plain_code  # 直接存明文
+                record.login_code_hash = plain_code
                 db.commit()
                 return {
                     "login_code": plain_code,
                     "message": "病患登錄碼重置成功"
                 }
-
-        else:  # nurse
+        else:
+            # 护士逻辑
             if mode == "register":
+                # 存入临时账号类型
                 code_record = NurseLoginCode(
                     nurse_id=None,
-                    login_code_hash=plain_code,  # 直接存明文
-                    is_active=True
+                    login_code_hash=plain_code,
+                    is_active=True,
+                    temp_account_type=account_type
                 )
                 db.add(code_record)
                 db.commit()
                 return {
                     "login_code": plain_code,
-                    "message": "護士登錄碼生成成功"
+                    "message": f"護士登錄碼生成成功，账号类型：{account_type}"
                 }
-
             elif mode == "reset":
                 record = db.query(NurseLoginCode).filter(NurseLoginCode.nurse_id == user_id).first()
                 if not record:
                     raise HTTPException(status_code=404, detail="未找到該護士的登錄碼")
-                record.login_code_hash = plain_code  # 直接存明文
+                record.login_code_hash = plain_code
                 db.commit()
                 return {
                     "login_code": plain_code,

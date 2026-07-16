@@ -78,7 +78,8 @@ def get_patients_without_nurse_paginated_by_phone(
         db: Session,
         page: int,
         page_size: int,
-        search: str = None
+        search: str = None,
+        custom_filter=True
 ) -> Dict:
     """
     查询未分配护士的患者（分页），支持手机号/姓名模糊搜索
@@ -89,12 +90,15 @@ def get_patients_without_nurse_paginated_by_phone(
         page: 当前页码（从1开始）
         page_size: 每页条数
         search: 搜索关键词（匹配手机号/姓名）
-
+        custom_filter: 默认空过滤，不影响旧逻辑
     Returns:
         包含患者列表和分页信息的字典
     """
     # 🔴 修改1：过滤条件从assigned_nurse_phone改为assigned_nurse_id
     query = db.query(Patient).filter(Patient.assigned_nurse_id.is_(None))
+
+    # 叠加权限过滤
+    query = query.filter(custom_filter)
 
     # 🔴 修改2：修复full_name计算属性无法用于SQL查询的问题
     # 改用first_name + last_name拼接匹配（兼容数据库查询）

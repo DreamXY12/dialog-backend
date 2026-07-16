@@ -124,7 +124,7 @@ def create_patient_record(db: Session, phone: str, first_name: str, last_name: s
     db.refresh(new_patient)
     return new_patient
 
-def create_nurse_record(db: Session, phone: str, first_name: str, last_name: str, phone_area_code: Optional[str] = None):
+def create_nurse_record(db: Session, phone: str, first_name: str, last_name: str,account_type, phone_area_code: Optional[str] = None):
     existing = db.query(Nurse).filter(Nurse.phone == phone).first()
     if existing:
         return None
@@ -134,7 +134,8 @@ def create_nurse_record(db: Session, phone: str, first_name: str, last_name: str
         first_name=first_name,
         last_name=last_name,
         create_time=datetime.now(),
-        update_time=datetime.now()
+        update_time=datetime.now(),
+        account_type=account_type
     )
     db.add(new_nurse)
     db.commit()
@@ -217,12 +218,12 @@ async def register_nurse(
     db: Session = Depends(get_db)
 ):
     try:
-        # 1. 校驗手機號
+        # 1. 校验手机号
         existing = db.query(Nurse).filter(Nurse.phone == request.phone).first()
         if existing:
             raise HTTPException(status_code=400, detail="手機號已註冊")
 
-        # 2. 校驗登入密碼
+        # 2. 校验登录码，拿到登录码记录（包含temp_account_type）
         code_record = verify_plain_login_code(
             db=db,
             phone=request.phone,
@@ -230,22 +231,26 @@ async def register_nurse(
             role="nurse"
         )
 
-        # 3. 建立護士
+        # 3. 从登录码读取临时账号类型，无则使用默认official
+        nurse_account_type = code_record.temp_account_type if code_record.temp_account_type else "official"
+
+        # 4. 创建护士，传入账号类型
         nurse = create_nurse_record(
             db=db,
             phone=request.phone,
             first_name=request.first_name,
             last_name=request.last_name,
-            phone_area_code=request.phone_area_code
+            phone_area_code=request.phone_area_code,
+            account_type=nurse_account_type  # 新增参数
         )
         if not nurse:
             raise HTTPException(status_code=400, detail="註冊失敗")
 
-        # 4. 綁定登入密碼
+        # 5. 绑定登录码到护士
         code_record.nurse_id = nurse.nurse_id
         db.commit()
 
-        # 5. 生成Token
+        # 6. 生成Token返回
         access_token = create_access_token(
             data={
                 "sub": str(nurse.nurse_id),

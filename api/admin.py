@@ -373,7 +373,7 @@ async def lookup_patient(phone: str = Query(..., description="完整手机号，
     return {
         "patient_id": patient.patient_id,
         "phone": patient.phone,
-        "full_name": patient.full_name
+        "full_name": patient.full_name,
     }
 
 # 2. 删除患者
@@ -396,7 +396,8 @@ async def lookup_nurse(phone: str = Query(..., description="完整手机号，�
     return {
         "nurse_id": nurse.nurse_id,
         "phone": nurse.phone,
-        "full_name": nurse.full_name
+        "full_name": nurse.full_name,
+        "account_type": nurse.account_type,
     }
 
 # 4. 删除护士
@@ -1503,4 +1504,41 @@ def admin_export_all_week9_txt(
             "Content-Disposition": f"attachment; filename*=utf-8''{filename_encoded}"
         }
     )
+from typing import Literal
+from fastapi import  status
+class NurseUpdateAccountTypeRequest(BaseModel):
+    phone: str
+    account_type: Literal["official", "test"]
 
+@router.put("/update-account-type", status_code=status.HTTP_200_OK)
+async def update_nurse_account_type(
+    req: NurseUpdateAccountTypeRequest,
+    db: Session = Depends(get_db),
+):
+    # 1. 根据完整手机号查询护士
+    nurse = db.query(Nurse).filter(Nurse.phone == req.phone).first()
+    if not nurse:
+        raise HTTPException(status_code=404, detail="未找到该护士账号")
+
+    # 3. 判断是否无需修改
+    if nurse.account_type == req.account_type:
+        return {
+            "success": True,
+            "message": "护士账号类型未发生变化，无需更新",
+            "phone": req.phone,
+            "current_account_type": nurse.account_type
+        }
+
+    # 4. 更新数据库
+    nurse.account_type = req.account_type
+    db.commit()
+    db.refresh(nurse)
+
+    return {
+        "success": True,
+        "message": "护士账号类型修改成功，患者可见范围已同步更新",
+        "phone": nurse.phone,
+        "full_name": nurse.full_name,
+        "old_account_type": nurse.account_type if nurse.account_type != req.account_type else None,
+        "new_account_type": req.account_type
+    }
