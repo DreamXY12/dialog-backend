@@ -128,12 +128,14 @@ async def ckd_predict(req: CKDPredictRequest):
 
         ckd_result = response.json()
 
+        # 应护士要求去除图片展示
+        ckd_result["image_url"]=""
 
         # 生成图片预签名地址
-        bucket = ckd_result.get("bucket")
-        key = ckd_result.get("key")
-        if bucket and key:
-            ckd_result["image_url"] = generate_s3_presigned_url(bucket, key)
+        # bucket = ckd_result.get("bucket")
+        # key = ckd_result.get("key")
+        # if bucket and key:
+        #     ckd_result["image_url"] = generate_s3_presigned_url(bucket, key)
 
         # 如果沒有錯誤就保存到數據庫
         try:
