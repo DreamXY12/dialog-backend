@@ -594,6 +594,20 @@ async def send_message(sid, data):
         logger.error("PendingRollbackError occurred, rolled back.")
         print("🔥 已修复失效事务：强制回滚并重置连接")
 
+        # ========== 新增：错误消息入库 ==========
+        get_or_create_message(
+            db=db,
+            session_uuid=str(active_session.session_uuid) if active_session else None,
+            sender_type=role_to_sender_type("system"),
+            sender_id=-1,
+            content="抱歉，當前出了點網絡問題，請刷新頁面稍後重試",
+            message_uuid=str(uuid.uuid4()),
+            chat_mode=data.get("chatMode", "AI"),
+            temp_id=data.get("temp_id"),
+            room_id=chat_room.room_id,
+            chat_room=chat_room,
+        )
+
     # 🔥 关键 2：捕获所有数据库错误
     except SQLAlchemyError as e:
         db.rollback()
@@ -657,6 +671,26 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
         }
         await sio.emit("receive_message", ai_msg, room=room_uuid)
         await redis.delete(lock_key)
+        # 新增入库
+        db_quick: Session = next(get_db())
+        get_or_create_message(
+            db=db_quick,
+            session_uuid="",
+            sender_type="ai",
+            sender_id=0,
+            content="AI 服務出現異常，抱歉，請稍後重試",
+            message_uuid=ai_message_uuid,
+            chat_mode="AI",
+            temp_id=None,
+            room_id=room_id,
+        )
+        try:
+            db_quick.commit()
+        except Exception as err:
+            db_quick.rollback()
+            logger.error(f"错误消息入库提交失败: {err}")
+        finally:
+            db_quick.close()
         return
 
     # 解析 AI 返回
@@ -686,6 +720,26 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
             }
             await sio.emit("receive_message", ai_msg, room=room_uuid)
             await redis.delete(lock_key)
+            # 新增入库
+            db_quick: Session = next(get_db())
+            get_or_create_message(
+                db=db_quick,
+                session_uuid="",
+                sender_type="ai",
+                sender_id=0,
+                content="AI 服務出現異常，抱歉，請稍後重試",
+                message_uuid=ai_message_uuid,
+                chat_mode="AI",
+                temp_id=None,
+                room_id=room_id,
+            )
+            try:
+                db_quick.commit()
+            except Exception as err:
+                db_quick.rollback()
+                logger.error(f"错误消息入库提交失败: {err}")
+            finally:
+                db_quick.close()
             return
 
         # 第二次 AI 请求成功
@@ -800,6 +854,23 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
             "state": "stopped"
         }
         await sio.emit("receive_message", ai_msg, room=room_uuid)
+        # 新增入库
+        get_or_create_message(
+            db=db,
+            session_uuid="",
+            sender_type="ai",
+            sender_id=0,
+            content="系統錯誤，請稍後重試",
+            message_uuid=ai_message_uuid,
+            chat_mode="AI",
+            temp_id=None,
+            room_id=room_id,
+        )
+        try:
+            db.commit()
+        except Exception as err:
+            db.rollback()
+            logger.error(f"错误消息入库提交失败: {err}")
         return  # 注意：return 后 finally 会执行
 
     finally:
