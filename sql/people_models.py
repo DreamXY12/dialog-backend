@@ -1202,12 +1202,18 @@ class Message(Base):
         Index('idx_session', 'session_uuid', 'create_time'),
         Index('idx_nurse_unread', 'room_id', 'nurse_read', 'sender_type', 'create_time'),
         Index('idx_patient_unread', 'room_id', 'patient_read', 'sender_type', 'create_time'),
+        Index(
+            "ft_msg_content",
+            "content",
+            mysql_prefix="FULLTEXT"
+        ),
         {
             'comment': '消息表（按聊天室分组，独立记录患者/护士已读）',
             'mysql_engine': 'InnoDB',
             'mysql_charset': 'utf8mb4',
             'mysql_collate': 'utf8mb4_0900_ai_ci'  # 与建表语句一致
-        }
+        },
+
     )
 
     # 主键

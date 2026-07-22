@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from api import auth,register,sms_router,patients,nurses,case,feedback,chat_history,CKD_server,AI_server,risk_server,code_login_generator
-from api import auth_code,register_code,speech_recognition_server,food_images_service,questionnaire_server
+from api import auth_code,register_code,speech_recognition_server,food_images_service,questionnaire_server,key_word_to_text_server
 from api import admin,admin_auth
 
 api_router = APIRouter(prefix="/api/v1")
@@ -30,6 +30,7 @@ api_router.include_router(food_images_service.router)
 api_router.include_router(admin.router)
 api_router.include_router(admin_auth.router)
 api_router.include_router(questionnaire_server.router)
+api_router.include_router(key_word_to_text_server.router)
 
 # api_router.include_router(nurse.router)
 # api_router.include_router(patient.router)
