@@ -364,13 +364,13 @@ class Patient(TimeStampMixIn, Base):
         """本地内存判断单条病人是否正式受试者"""
         if not self.subject_code:
             return False
-        pattern = re.compile(r'^R\d{3}$')
+        pattern = re.compile(r'^R.{3}$')
         return bool(pattern.match(self.subject_code))
 
     @staticmethod
     def official_subject_sql_filter():
         """同步Session可用的正式受试者过滤条件"""
-        return func.regexp_like(Patient.subject_code, r'^R\d{3}$')
+        return func.regexp_like(Patient.subject_code, r'^R.{3}$')
 
 
     @staticmethod
@@ -379,7 +379,7 @@ class Patient(TimeStampMixIn, Base):
         # 测试病人：为空 或 不匹配正则
         return or_(
             Patient.subject_code.is_(None),
-            ~func.regexp_like(Patient.subject_code, r'^R\d{3}$')
+            ~func.regexp_like(Patient.subject_code, r'^R.{3}$')
         )
     # 计算属性（无修改）
     @property
