@@ -21,6 +21,9 @@ from sql.patient_curd import get_patient_by_id
 from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+import httpx
+from fastapi.responses import JSONResponse
+from fastapi import UploadFile, File
 
 router = APIRouter()
 
@@ -190,3 +193,39 @@ def get_diabetes_range_records(
         "page": page,
         "page_size": page_size
     }
+
+# OCR内网服务地址（固定）
+OCR_SERVICE_URL = "http://172.31.22.78:9000/ocr/report"
+local_url="http://localhost:9000/ocr/report"
+
+@router.post("/proxy/ocr/report")
+async def proxy_ocr_report(file: UploadFile = File(...)):
+    """
+    OCR请求代理中转
+    前端调用地址：https://dialog.polyusn.com/api/proxy/ocr/report
+    """
+    try:
+        # 读取上传图片二进制
+        file_bytes = await file.read()
+        file.file.seek(0)  # 复位指针（可选）
+
+        # 构造form-data转发给内网OCR服务
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            files = {
+                "file": (file.filename, file_bytes, file.content_type)
+            }
+            resp = await client.post(OCR_SERVICE_URL, files=files)
+
+        # 直接透传OCR服务返回JSON
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+    except httpx.TimeoutException:
+        return JSONResponse({
+            "code": -1,
+            "msg": "服务请求超时"
+        }, status_code=504)
+    except Exception as e:
+        return JSONResponse({
+            "code": -1,
+            "msg": f"ocr proxy error: {str(e)}"
+        }, status_code=500)
