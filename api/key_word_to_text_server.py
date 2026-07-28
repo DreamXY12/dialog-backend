@@ -64,6 +64,8 @@ def search_patient_keyword_message(
     keyword: str = Query(..., description="检索关键词"),
     date: str = Query(..., description="查询日期 YYYY-MM-DD"),
     nurse_id: int = Query(..., description="当前登录护士ID"),
+    # 新增：上下文时长，默认5分钟，限制1~120分钟防止恶意大查询
+    context_min: int = Query(5, ge=1, le=120, description="上下文向后时长（分钟），范围1~120"),
     db: Session = Depends(get_db)
 ):
     # 1. 根据传入nurse_id获取护士
@@ -96,7 +98,7 @@ def search_patient_keyword_message(
     # 3. 第一步：全文检索，找出当天所有包含关键词的消息时间
     match_stmt = select(Message.create_time).where(
         Message.room_id == room_id,
-        Message.content.match(keyword),  # ✅ 正确
+        Message.content.match(keyword),
         Message.create_time >= day_start,
         Message.create_time < day_end
     )
@@ -109,12 +111,10 @@ def search_patient_keyword_message(
             time_block_list=[]
         )
 
-    # 4. 生成每条匹配消息的前后5分钟时间区间
+    # 4. 生成每条匹配消息的前后N分钟时间区间（动态参数）
     raw_ranges = []
-    offset = timedelta(minutes=CONTEXT_OFFSET_MIN)
+    offset = timedelta(minutes=context_min)  # 使用前端传入时长
     for t in match_times:
-        # 找到对应关键词后，往后推5分钟
-        #range_start = t - offset
         range_start = t
         range_end = t + offset
         raw_ranges.append((range_start, range_end))
