@@ -1,10 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, desc, and_
 from typing import List, Optional
 from datetime import datetime,timedelta
 from pydantic import BaseModel
-from sqlalchemy import desc
+from sqlalchemy import desc,select
 from sql.common_model import Feedback
 import zipfile
 # ====================== 新增：第九周问卷管理员接口（多语言PDF + 列表 + 批量打包ZIP） ======================
@@ -1542,3 +1541,59 @@ async def update_nurse_account_type(
         "old_account_type": nurse.account_type if nurse.account_type != req.account_type else None,
         "new_account_type": req.account_type
     }
+
+def generate_patient_text_stream(db: Session):
+    """生成txt数据流生成器（已调整字段顺序：姓名、手机号、注册时间）"""
+    # 使用你现成的正式受试者过滤条件
+    stmt = (
+        select(
+            Patient.create_time,
+            Patient.first_name,
+            Patient.last_name,
+            Patient.phone,
+            Patient.phone_area_code,
+            Patient.subject_code
+        )
+        .filter(Patient.official_subject_sql_filter())
+        .order_by(Patient.create_time)
+    )
+    result = db.execute(stmt)
+    rows = result.all()
+
+    # 表头：调整为 姓名 → 手机号 → 注册时间
+    yield "姓名\t手机号\t注册时间\t编号\n".encode("utf-8-sig")
+    for row in rows:
+        create_time: datetime = row.create_time
+        full_name = f"{row.first_name} {row.last_name}"
+        full_phone = row.phone
+        area = row.phone_area_code or ""
+        # 移除区号，拿到纯手机号
+        pure_phone = full_phone.replace(area, "")
+        time_str = create_time.strftime("%Y-%m-%d %H:%M:%S")
+        code = row.subject_code
+        # 行数据：和表头顺序严格对应
+        line = f"{full_name}\t{pure_phone}\t{time_str}\t{code}\n"
+        yield line.encode("utf-8")
+
+import urllib
+@router.get("/export/patient-official-basic")
+async def export_official_patient_data(
+    db: Session = Depends(get_db)):
+    """
+    导出正式受试者患者基础信息txt
+    筛选：subject_code非空且R开头
+    字段顺序：姓名、不带区号手机号、注册时间
+    """
+    filename = "账号信息.txt"
+    encoded_filename = urllib.parse.quote(filename, safe="")
+    headers = {
+        # filename 放英文兜底，filename* 承载中文UTF8（RFC5987标准）
+        "Content-Disposition": f'attachment; filename="patient_data.txt"; filename*=UTF-8\'\'{encoded_filename}',
+        "Content-Type": "text/plain; charset=utf-8"
+    }
+
+    return StreamingResponse(
+        generate_patient_text_stream(db),
+        headers=headers,
+        media_type="text/plain"
+    )
