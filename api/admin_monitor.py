@@ -26,17 +26,18 @@ router = APIRouter(prefix="/admin/patient-monitor", tags=["管理员-患者数�
 @router.get("/patient-list", response_model=PatientMonitorListResp)
 def get_patient_simple_list(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
     # _ = Depends(admin_required)
 ):
     """获取患者简易下拉列表，用于监控面板选择患者"""
     offset = (page - 1) * page_size
-    stmt_total = select(func.count(Patient.patient_id))
+    stmt_total = (select(func.count(Patient.patient_id)).where(Patient.official_subject_sql_filter()))
     total = db.scalar(stmt_total) or 0
 
     stmt_items = (
         select(Patient.patient_id, Patient.subject_code, Patient.first_name, Patient.last_name)
+        .where(Patient.official_subject_sql_filter())
         .order_by(Patient.patient_id)
         .offset(offset)
         .limit(page_size)
