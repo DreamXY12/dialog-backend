@@ -87,3 +87,9 @@ class PatientSimpleItem(BaseModel):
 class PatientMonitorListResp(BaseModel):
     items: List[PatientSimpleItem]
     total: int
+
+# ========= 数据导出 =========
+class ExportRequest(BaseModel):
+    start_date: date = Field(..., description="开始日期（包含）")
+    end_date: date = Field(..., description="结束日期（包含）")
+    mode: str = Field(..., description="导出模式: 'combined' 合并到一个txt, 'separate' 按患者分开打包zip")

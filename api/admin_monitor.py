@@ -19,9 +19,184 @@ from schema.admin_monitor import (
 )
 # 这里引入你的管理员权限依赖，示例：from core.deps import admin_required
 # from core.deps import admin_required
+import io
+import zipfile
+from fastapi.responses import Response, StreamingResponse
+from schema.admin_monitor import ExportRequest
+from sql.people_models import ChatRoom, SenderType
+from sql.ckd_model import PatientCkdRiskRecord
 
 router = APIRouter(prefix="/admin/patient-monitor", tags=["管理员-患者数据监控"])
 
+# ===================== 数据导出服务 =====================
+class PatientExportService:
+    """患者数据导出服务（类方法，不写原始SQL）"""
+
+    def __init__(self, db: Session, start_date: date, end_date: date):
+        self.db = db
+        self.start_date = start_date
+        self.end_date = end_date
+
+    def get_patients(self):
+        """获取所有正式受试者患者（与下拉列表规则一致）"""
+        stmt = (
+            select(Patient)
+            .where(Patient.official_subject_sql_filter())
+            .order_by(Patient.patient_id)
+        )
+        return self.db.scalars(stmt).all()
+
+    # ---------- AI 对话 ----------
+    def get_room_id_by_patient(self, patient_id: int):
+        """通过患者ID获取聊天室ID"""
+        stmt = select(ChatRoom.room_id).where(ChatRoom.patient_id == patient_id)
+        return self.db.scalar(stmt)
+
+    def get_ai_messages(self, patient_id: int):
+        """获取患者在指定时间段内的AI对话记录（患者与AI的消息）"""
+        room_id = self.get_room_id_by_patient(patient_id)
+        if not room_id:
+            return []
+
+        stmt = (
+            select(Message)
+            .where(
+                Message.room_id == room_id,
+                func.date(Message.create_time).between(self.start_date, self.end_date),
+                Message.sender_type.in_([SenderType.PATIENT, SenderType.AI])
+            )
+            .order_by(Message.create_time)
+        )
+        return self.db.scalars(stmt).all()
+
+    # ---------- 糖尿病风险预测 ----------
+    def get_diabetes_risks(self, patient_id: int):
+        """获取患者在指定时间段内的糖尿病风险预测记录"""
+        stmt = (
+            select(Case)
+            .where(
+                Case.user_id == patient_id,
+                func.date(Case.test_date).between(self.start_date, self.end_date)
+            )
+            .order_by(Case.test_date)
+        )
+        return self.db.scalars(stmt).all()
+
+    # ---------- CKD 肾病风险预测 ----------
+    def get_ckd_risks(self, patient_id: int):
+        """获取患者在指定时间段内的CKD肾病风险预测记录"""
+        stmt = (
+            select(PatientCkdRiskRecord)
+            .where(
+                PatientCkdRiskRecord.patient_id == patient_id,
+                func.date(PatientCkdRiskRecord.test_date).between(self.start_date, self.end_date)
+            )
+            .order_by(PatientCkdRiskRecord.test_date)
+        )
+        return self.db.scalars(stmt).all()
+
+    # ---------- 食物图片上传 ----------
+    def get_food_images(self, patient_id: int):
+        """获取患者在指定时间段内的食物图片上传记录"""
+        stmt = (
+            select(FoodImage)
+            .where(
+                FoodImage.patient_id == patient_id,
+                func.date(FoodImage.upload_timestamp).between(self.start_date, self.end_date)
+            )
+            .order_by(FoodImage.upload_timestamp)
+        )
+        return self.db.scalars(stmt).all()
+
+    # ---------- 格式化单个患者的完整报告 ----------
+    def format_patient_report(self, patient: Patient) -> str:
+        """生成单个患者的完整文本报告"""
+        lines = []
+        header = f"========== 患者：{patient.full_name} (ID: {patient.patient_id}, 编号: {patient.subject_code or '无'}) =========="
+        lines.append(header)
+        lines.append("")
+
+        # 1. AI 对话记录
+        lines.append("【AI对话记录】")
+        msgs = self.get_ai_messages(patient.patient_id)
+        if msgs:
+            for m in msgs:
+                sender = m.sender_type.value if hasattr(m.sender_type, 'value') else str(m.sender_type)
+                content = m.content or ""
+                time_str = m.create_time.strftime('%Y-%m-%d %H:%M:%S') if m.create_time else ""
+                lines.append(f"{time_str} [{sender}]: {content}")
+        else:
+            lines.append("  无记录")
+        lines.append("")
+
+        # 2. 糖尿病风险预测记录
+        lines.append("【糖尿病风险预测记录】")
+        cases = self.get_diabetes_risks(patient.patient_id)
+        if cases:
+            for c in cases:
+                # 输入参数
+                inputs = (
+                    f"HbA1c:{c.hba1c or '-'}, FPG:{c.fasting_glucose or '-'}, "
+                    f"HDL:{c.hdl_cholesterol or '-'}, TC:{c.total_cholesterol or '-'}, "
+                    f"LDL:{c.ldl_cholesterol or '-'}, Creat:{c.creatinine or '-'}, "
+                    f"TG:{c.triglyceride or '-'}, K:{c.potassium or '-'}"
+                )
+                # 输出结果
+                outputs = (
+                    f"2年风险:{c.analysis_result_2 or '-'}({c.score_2 or '-'}), "
+                    f"5年风险:{c.analysis_result or '-'}({c.score or '-'}), "
+                    f"10年风险:{c.analysis_result_10 or '-'}({c.score_10 or '-'})"
+                )
+                lines.append(f"日期:{c.test_date} | 输入: {inputs} | 输出: {outputs}")
+        else:
+            lines.append("  无记录")
+        lines.append("")
+
+        # 3. CKD 肾病风险预测记录
+        lines.append("【CKD肾病风险预测记录】")
+        ckd_list = self.get_ckd_risks(patient.patient_id)
+        if ckd_list:
+            for c in ckd_list:
+                # 输入参数（按模型字段顺序）
+                inputs = (
+                    f"Age:{c.age or '-'}, Sex:{c.sex or '-'}, BMI:{c.bmi or '-'}, WHR:{c.whr or '-'}, "
+                    f"HbA1c:{c.hba1c or '-'}, TC:{c.tc or '-'}, LDL:{c.ldl or '-'}, HDL:{c.hdl or '-'}, "
+                    f"K:{c.k or '-'}, Creat:{c.creat or '-'}, FPG:{c.fpg or '-'}, "
+                    f"SBP:{c.sbp or '-'}, DBP:{c.dbp or '-'}, "
+                    f"Insulin:{'是' if c.use_insulin else '否'}, Stroke:{'是' if c.stroke else '否'}, "
+                    f"Smoke:{'是' if c.smoke else '否'}, AntiHT:{'是' if c.anti_ht else '否'}, "
+                    f"Angio:{'是' if c.angio else '否'}, OtherDM:{'是' if c.other_dm else '否'}, "
+                    f"Foot:{'是' if c.foot_prob else '否'}, Eye:{'是' if c.eye_prob else '否'}"
+                )
+                # 输出结果
+                outputs = (
+                    f"风险等级:{c.risk_group or '-'}, "
+                    f"2年风险概率:{c.risk_2y_percent or '-'}%, "
+                    f"5年风险概率:{c.risk_5y_percent or '-'}%, "
+                    f"人群百分位:{c.population_percentile or '-'}%"
+                )
+                # 如有AI生成图片URL，附在备注中
+                image_info = f", 图片:{c.image_url}" if c.image_url else ""
+                lines.append(f"日期:{c.test_date} | 输入: {inputs} | 输出: {outputs}{image_info}")
+        else:
+            lines.append("  无记录")
+        lines.append("")
+
+        # 4. 食物图片上传记录
+        lines.append("【食物图片上传记录】")
+        foods = self.get_food_images(patient.patient_id)
+        if foods:
+            for f in foods:
+                time_str = f.upload_timestamp.strftime('%Y-%m-%d %H:%M:%S') if f.upload_timestamp else ""
+                remark = f" 备注:{f.remark}" if f.remark else ""
+                lines.append(f"时间:{time_str} | 文件路径:{f.s3_key}{remark}")
+        else:
+            lines.append("  无记录")
+
+        lines.append("")
+        lines.append("=" * 60)
+        lines.append("")
+        return "\n".join(lines)
 
 @router.get("/patient-list", response_model=PatientMonitorListResp)
 def get_patient_simple_list(
@@ -195,3 +370,76 @@ def get_patient_day_ai_chat_records(
             "create_time": rec.create_time
         })
     return {"date": target_date, "records": result}
+
+@router.post("/export")
+def export_patient_data(
+    req: ExportRequest,
+    db: Session = Depends(get_db),
+    # _ = Depends(admin_required)
+):
+    """
+    导出患者数据（AI对话、风险预测、食物图片）
+    支持两种模式：
+    - combined: 所有患者合并到一个txt文件
+    - separate: 每个患者单独txt，打包成zip下载
+    """
+    # 校验日期
+    if req.start_date > req.end_date:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+
+    service = PatientExportService(db, req.start_date, req.end_date)
+    patients = service.get_patients()
+
+    # 如果时间段内没有患者（或所有患者无数据），返回空提示
+    if not patients:
+        empty_msg = f"所选时间段 {req.start_date} 至 {req.end_date} 内无任何正式患者记录。"
+        return Response(
+            content=empty_msg,
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename=empty_export.txt"}
+        )
+
+    # ---------- 合并模式 ----------
+    if req.mode == "combined":
+        full_content = ""
+        for p in patients:
+            report = service.format_patient_report(p)
+            # 如果报告只有表头和无记录，可以跳过（保留也行，这里保留显示无记录）
+            full_content += report
+
+        if not full_content.strip():
+            full_content = f"所选时间段 {req.start_date} 至 {req.end_date} 内无任何患者活动记录。"
+
+        filename = f"combined_export_{req.start_date}_{req.end_date}.txt"
+        return Response(
+            content=full_content,
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    # ---------- 分离模式（打包ZIP） ----------
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        has_content = False
+        for p in patients:
+            report = service.format_patient_report(p)
+            # 只保存有实际记录的（可根据需求调整：可保留全部，这里保留有内容的）
+            # 简单判断：如果包含至少一条非"无记录"的内容（排除表头和空行），即为有数据
+            lines = report.splitlines()
+            has_data = any("无记录" not in line and "======" not in line and line.strip() != "" for line in lines)
+            if has_data:
+                # 文件名：患者全名 + 患者正式编号 + 使用记录.txt
+                safe_name = f"{p.full_name}_{p.subject_code}_使用记录.txt"
+                zip_file.writestr(safe_name, report)
+                has_content = True
+
+        if not has_content:
+            zip_file.writestr("提示.txt", f"所选时间段 {req.start_date} 至 {req.end_date} 内无任何患者活动记录。")
+
+    zip_buffer.seek(0)
+    zip_filename = f"patient_records_{req.start_date}_{req.end_date}.zip"
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
+    )
