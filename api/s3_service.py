@@ -35,4 +35,8 @@ class S3Service:
             ExpiresIn=expires
         )
 
+    def get_bytes(self, s3_key: str) -> bytes:
+        resp = self.client.get_object(Bucket=self.bucket, Key=s3_key)
+        return resp["Body"].read()
+
 s3_service = S3Service()

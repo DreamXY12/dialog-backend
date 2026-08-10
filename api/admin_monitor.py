@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, Query,HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, and_, case
 from typing import List
-from datetime import date, datetime
+from datetime import date, datetime,time
+from api.s3_service import s3_service
 from sql.start import get_db
 from sql.people_models import (
     Patient,
@@ -442,4 +443,77 @@ def export_patient_data(
         zip_buffer,
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
+    )
+
+from urllib.parse import quote
+@router.get("/download-day-image-zip")
+def download_day_zip(
+    target_date: date = Query(..., description="目标日期 YYYY‑MM‑DD"),
+    patient_id: int | None = Query(None, description="指定患者ID，不传则导出该日全部患者图片"),
+    db: Session = Depends(get_db)
+):
+    day_start = datetime.combine(target_date, time.min)
+    day_end = datetime.combine(target_date, time.max)
+
+    # ✅ join同时取出 subject_code + remark
+    q = (
+        db.query(FoodImage, Patient.subject_code, FoodImage.remark)
+        .join(Patient, FoodImage.patient_id == Patient.patient_id)
+        .filter(
+            FoodImage.upload_timestamp >= day_start,
+            FoodImage.upload_timestamp <= day_end
+        )
+    )
+    if patient_id is not None:
+        q = q.filter(FoodImage.patient_id == patient_id)
+
+    records = q.limit(20).all()
+    if not records:
+        return Response(status_code=204)
+
+    mem_zip = io.BytesIO()
+    remark_lines = []  # 收集备注文本行
+
+    with zipfile.ZipFile(mem_zip, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for fi, subject_code, remark in records:
+            pid = fi.patient_id
+            s3_key = fi.s3_key
+            file_name = s3_key.split("/")[-1]
+
+            # 📝构建remark.txt行：文件名:备注，remark为None就为空字符串
+            remark_content = remark if remark is not None else ""
+            line = f"{file_name}:{remark_content}"
+            remark_lines.append(line)
+
+            # 🆕优先使用subject_code，为空兜底 patient_xxx
+            if subject_code and subject_code.strip():
+                outer_folder = subject_code.strip()
+            else:
+                outer_folder = f"patient_{pid}"
+
+            zip_inner_path = f"{outer_folder}/{file_name}"
+            try:
+                img_bytes = s3_service.get_bytes(s3_key)
+                zf.writestr(zip_inner_path, img_bytes)
+                del img_bytes
+            except Exception as e:
+                print(f"[WARN] 跳过图片 s3_key={s3_key}, err={str(e)}")
+
+        # ✅ 将 remark.txt 写入zip根目录
+        remark_text = "\n".join(remark_lines)
+        zf.writestr("remark.txt", remark_text.encode("utf‑8"))
+
+    mem_zip.seek(0)
+    zip_filename = f"food_images_{target_date}.zip"
+
+    # RFC5987 编码文件名，处理中文
+    encoded_filename = quote(zip_filename, encoding="utf-8")
+
+    return StreamingResponse(
+        mem_zip,
+        media_type="application/zip",
+        headers={
+            # ！！！重点：这里是标准短横线 "-"，不要复制粘贴带‑的字符串！！！
+            "Content-Disposition": f'attachment; filename*=utf-8\'\'{encoded_filename}'
+        }
     )
