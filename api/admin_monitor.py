@@ -143,10 +143,15 @@ class PatientExportService:
                     f"TG:{c.triglyceride or '-'}, K:{c.potassium or '-'}"
                 )
                 # 输出结果
+                # outputs = (
+                #     f"2年风险:{c.analysis_result_2 or '-'}({c.score_2 or '-'}), "
+                #     f"5年风险:{c.analysis_result or '-'}({c.score or '-'}), "
+                #     f"10年风险:{c.analysis_result_10 or '-'}({c.score_10 or '-'})"
+                # )
                 outputs = (
-                    f"2年风险:{c.analysis_result_2 or '-'}({c.score_2 or '-'}), "
-                    f"5年风险:{c.analysis_result or '-'}({c.score or '-'}), "
-                    f"10年风险:{c.analysis_result_10 or '-'}({c.score_10 or '-'})"
+                    f"2年风险:{c.analysis_result_2 or '-'}, "
+                    f"5年风险:{c.analysis_result or '-'}, "
+                    f"10年风险:{c.analysis_result_10 or '-'}"
                 )
                 lines.append(f"日期:{c.test_date} | 输入: {inputs} | 输出: {outputs}")
         else:
