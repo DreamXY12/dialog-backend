@@ -29,6 +29,23 @@ from sql.ckd_model import PatientCkdRiskRecord
 
 router = APIRouter(prefix="/admin/patient-monitor", tags=["管理员-患者数据监控"])
 
+def remove_area_code(full_phone: str | None, area_code: str | None) -> str:
+    """
+    从完整手机号开头移除区号
+    :param full_phone: 带区号完整号码，例如 "+85211111111"
+    :param area_code: 区号，例如 "+852"
+    :return: 去除区号后的纯号码
+    """
+    # 处理空值
+    if not full_phone or not area_code:
+        return full_phone if full_phone else ""
+
+    # 判断是否以区号开头，是则切掉前缀
+    if full_phone.startswith(area_code):
+        return full_phone[len(area_code):]
+    # 如果号码前缀不匹配区号，原样返回
+    return full_phone
+
 # ===================== 数据导出服务 =====================
 class PatientExportService:
     """患者数据导出服务（类方法，不写原始SQL）"""
@@ -113,7 +130,8 @@ class PatientExportService:
     def format_patient_report(self, patient: Patient) -> str:
         """生成单个患者的完整文本报告"""
         lines = []
-        header = f"========== 患者：{patient.full_name} (ID: {patient.patient_id}, 编号: {patient.subject_code or '无'}) =========="
+        phone=remove_area_code(patient.phone,patient.phone_area_code)
+        header = f"========== 患者：{patient.full_name} (编号: {patient.subject_code or '无'}, 电话号码: {phone}) =========="
         lines.append(header)
         lines.append("")
 
@@ -130,63 +148,64 @@ class PatientExportService:
             lines.append("  无记录")
         lines.append("")
 
-        # 2. 糖尿病风险预测记录
-        lines.append("【糖尿病风险预测记录】")
-        cases = self.get_diabetes_risks(patient.patient_id)
-        if cases:
-            for c in cases:
-                # 输入参数
-                inputs = (
-                    f"HbA1c:{c.hba1c or '-'}, FPG:{c.fasting_glucose or '-'}, "
-                    f"HDL:{c.hdl_cholesterol or '-'}, TC:{c.total_cholesterol or '-'}, "
-                    f"LDL:{c.ldl_cholesterol or '-'}, Creat:{c.creatinine or '-'}, "
-                    f"TG:{c.triglyceride or '-'}, K:{c.potassium or '-'}"
-                )
-                # 输出结果
-                # outputs = (
-                #     f"2年风险:{c.analysis_result_2 or '-'}({c.score_2 or '-'}), "
-                #     f"5年风险:{c.analysis_result or '-'}({c.score or '-'}), "
-                #     f"10年风险:{c.analysis_result_10 or '-'}({c.score_10 or '-'})"
-                # )
-                outputs = (
-                    f"2年风险:{c.analysis_result_2 or '-'}, "
-                    f"5年风险:{c.analysis_result or '-'}, "
-                    f"10年风险:{c.analysis_result_10 or '-'}"
-                )
-                lines.append(f"日期:{c.test_date} | 输入: {inputs} | 输出: {outputs}")
+        # 2. 糖尿病风险预测记录，如果有
+        if patient.has_diabetes!="Yes":
+            lines.append("【糖尿病风险预测记录】")
+            cases = self.get_diabetes_risks(patient.patient_id)
+            if cases:
+                for c in cases:
+                    # 输入参数
+                    inputs = (
+                        f"HbA1c:{c.hba1c or '-'}, FPG:{c.fasting_glucose or '-'}, "
+                        f"HDL:{c.hdl_cholesterol or '-'}, TC:{c.total_cholesterol or '-'}, "
+                        f"LDL:{c.ldl_cholesterol or '-'}, Creat:{c.creatinine or '-'}, "
+                        f"TG:{c.triglyceride or '-'}, K:{c.potassium or '-'}"
+                    )
+                    # 输出结果
+                    # outputs = (
+                    #     f"2年风险:{c.analysis_result_2 or '-'}({c.score_2 or '-'}), "
+                    #     f"5年风险:{c.analysis_result or '-'}({c.score or '-'}), "
+                    #     f"10年风险:{c.analysis_result_10 or '-'}({c.score_10 or '-'})"
+                    # )
+                    outputs = (
+                        f"2年风险:{c.analysis_result_2 or '-'}, "
+                        f"5年风险:{c.analysis_result or '-'}, "
+                        f"10年风险:{c.analysis_result_10 or '-'}"
+                    )
+                    lines.append(f"日期:{c.test_date} | 输入: {inputs} | 输出: {outputs}")
+            else:
+                lines.append("  无记录")
+            lines.append("")
         else:
-            lines.append("  无记录")
-        lines.append("")
-
-        # 3. CKD 肾病风险预测记录
-        lines.append("【CKD肾病风险预测记录】")
-        ckd_list = self.get_ckd_risks(patient.patient_id)
-        if ckd_list:
-            for c in ckd_list:
-                # 输入参数（按模型字段顺序）
-                inputs = (
-                    f"Age:{c.age or '-'}, Sex:{c.sex or '-'}, BMI:{c.bmi or '-'}, WHR:{c.whr or '-'}, "
-                    f"HbA1c:{c.hba1c or '-'}, TC:{c.tc or '-'}, LDL:{c.ldl or '-'}, HDL:{c.hdl or '-'}, "
-                    f"K:{c.k or '-'}, Creat:{c.creat or '-'}, FPG:{c.fpg or '-'}, "
-                    f"SBP:{c.sbp or '-'}, DBP:{c.dbp or '-'}, "
-                    f"Insulin:{'是' if c.use_insulin else '否'}, Stroke:{'是' if c.stroke else '否'}, "
-                    f"Smoke:{'是' if c.smoke else '否'}, AntiHT:{'是' if c.anti_ht else '否'}, "
-                    f"Angio:{'是' if c.angio else '否'}, OtherDM:{'是' if c.other_dm else '否'}, "
-                    f"Foot:{'是' if c.foot_prob else '否'}, Eye:{'是' if c.eye_prob else '否'}"
-                )
-                # 输出结果
-                outputs = (
-                    f"风险等级:{c.risk_group or '-'}, "
-                    f"2年风险概率:{c.risk_2y_percent or '-'}%, "
-                    f"5年风险概率:{c.risk_5y_percent or '-'}%, "
-                    f"人群百分位:{c.population_percentile or '-'}%"
-                )
-                # 如有AI生成图片URL，附在备注中
-                image_info = f", 图片:{c.image_url}" if c.image_url else ""
-                lines.append(f"日期:{c.test_date} | 输入: {inputs} | 输出: {outputs}{image_info}")
-        else:
-            lines.append("  无记录")
-        lines.append("")
+            # 3. CKD 肾病风险预测记录
+            lines.append("【CKD肾病风险预测记录】")
+            ckd_list = self.get_ckd_risks(patient.patient_id)
+            if ckd_list:
+                for c in ckd_list:
+                    # 输入参数（按模型字段顺序）
+                    inputs = (
+                        f"Age:{c.age or '-'}, Sex:{c.sex or '-'}, BMI:{c.bmi or '-'}, WHR:{c.whr or '-'}, "
+                        f"HbA1c:{c.hba1c or '-'}, TC:{c.tc or '-'}, LDL:{c.ldl or '-'}, HDL:{c.hdl or '-'}, "
+                        f"K:{c.k or '-'}, Creat:{c.creat or '-'}, FPG:{c.fpg or '-'}, "
+                        f"SBP:{c.sbp or '-'}, DBP:{c.dbp or '-'}, "
+                        f"Insulin:{'是' if c.use_insulin else '否'}, Stroke:{'是' if c.stroke else '否'}, "
+                        f"Smoke:{'是' if c.smoke else '否'}, AntiHT:{'是' if c.anti_ht else '否'}, "
+                        f"Angio:{'是' if c.angio else '否'}, OtherDM:{'是' if c.other_dm else '否'}, "
+                        f"Foot:{'是' if c.foot_prob else '否'}, Eye:{'是' if c.eye_prob else '否'}"
+                    )
+                    # 输出结果
+                    outputs = (
+                        f"风险等级:{c.risk_group or '-'}, "
+                        f"2年风险概率:{c.risk_2y_percent or '-'}%, "
+                        f"5年风险概率:{c.risk_5y_percent or '-'}%, "
+                        f"人群百分位:{c.population_percentile or '-'}%"
+                    )
+                    # 如有AI生成图片URL，附在备注中
+                    image_info = f", 图片:{c.image_url}" if c.image_url else ""
+                    lines.append(f"日期:{c.test_date} | 输入: {inputs} | 输出: {outputs}{image_info}")
+            else:
+                lines.append("  无记录")
+            lines.append("")
 
         # 4. 食物图片上传记录
         lines.append("【食物图片上传记录】")
