@@ -223,6 +223,60 @@ class PatientExportService:
         lines.append("")
         return "\n".join(lines)
 
+    def get_simple_patient_data(self, patient: Patient) -> dict:
+        """
+        获取单个患者的简化汇总数据（时间段内最近一次记录日期）
+        """
+        # AI 对话（仅患者发送的消息）
+        ai_msgs = self.get_ai_messages(patient.patient_id)
+        last_ai_date = max((m.create_time for m in ai_msgs), default=None)
+
+        if patient.has_diabetes!="Yes":
+            # 糖尿病风险预测（使用 Case 表）
+            cases = self.get_diabetes_risks(patient.patient_id)
+            last_risk_date = max((c.update_time for c in cases), default=None)
+        else:
+            # CKD 风险预测（使用 PatientCkdRiskRecord）
+            ckd_records = self.get_ckd_risks(patient.patient_id)
+            last_risk_date = max((r.create_time for r in ckd_records), default=None)
+
+        # 食物图片上传
+        foods = self.get_food_images(patient.patient_id)
+        last_food_date = max((f.upload_timestamp for f in foods), default=None)
+
+        return {
+            "patient_id": patient.subject_code, # 这是的
+            "full_name": patient.full_name,
+            "phone": remove_area_code(patient.phone,patient.phone_area_code),
+            "last_ai_date": last_ai_date,
+            "last_risk_date": last_risk_date,
+            "last_food_date": last_food_date,
+        }
+
+    def format_simple_report(self, patient: Patient) -> str:
+        """生成单个患者的简化报告（一行制表符分隔）"""
+        data = self.get_simple_patient_data(patient)
+
+        # 统一格式化日期：YYYY-MM-DD HH:MM:SS
+        def fmt_date(d):
+            if d is None:
+                return "-"
+            # 如果是 datetime 对象
+            if isinstance(d, datetime):
+                return d.strftime('%Y-%m-%d %H:%M:%S')
+            # 如果是 date 对象（不含时间）
+            if isinstance(d, date):
+                return d.strftime('%Y-%m-%d 00:00:00')
+            # 其他情况（如字符串）直接转字符串
+            return str(d)
+
+        ai = fmt_date(data["last_ai_date"])
+        risk = fmt_date(data["last_risk_date"])
+        food = fmt_date(data["last_food_date"])
+
+        # 注意：patient_id 已经改为 subject_code
+        return f"{data['patient_id']}\t{data['full_name']}\t{data['phone']}\t{ai}\t{risk}\t{food}"
+
 @router.get("/patient-list", response_model=PatientMonitorListResp)
 def get_patient_simple_list(
     page: int = Query(1, ge=1),
@@ -540,4 +594,69 @@ def download_day_zip(
             # ！！！重点：这里是标准短横线 "-"，不要复制粘贴带‑的字符串！！！
             "Content-Disposition": f'attachment; filename*=utf-8\'\'{encoded_filename}'
         }
+    )
+
+@router.post("/export-simple")
+def export_simple_patient_data(
+    req: ExportRequest,  # 复用相同的 Schema（start_date, end_date, mode）
+    db: Session = Depends(get_db),
+):
+    """
+    简化导出：每个患者一行，包含ID、姓名、电话、最近使用AI日期、最近风险预测日期、最近食物上传日期。
+    支持合并为一个txt（制表符分隔，可直接粘贴到Excel）或按患者分开打包zip。
+    """
+    if req.start_date > req.end_date:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+
+    service = PatientExportService(db, req.start_date, req.end_date)
+    patients = service.get_patients()
+
+    if not patients:
+        empty_msg = f"所选时间段 {req.start_date} 至 {req.end_date} 内无任何正式患者记录。"
+        return Response(
+            content=empty_msg,
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=empty_export.txt"}
+        )
+
+    # ---------- 合并模式 ----------
+    if req.mode == "combined":
+        # 生成表头
+        header = "ID\t姓名\t电话\t上次AI对话日期\t上次风险预测日期\t上次食物上传日期"
+        lines = [header]
+        for p in patients:
+            line = service.format_simple_report(p)
+            lines.append(line)
+        content = "\n".join(lines)
+
+        filename = f"simple_combined_{req.start_date}_{req.end_date}.txt"
+        return Response(
+            content=content,
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    # ---------- 分离模式 ----------
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        has_content = False
+        for p in patients:
+            line = service.format_simple_report(p)
+            # 检查是否有任何日期不是 '-'（即至少有一条记录）
+            parts = line.split("\t")
+            # parts: [id, name, phone, ai, risk, food]
+            if any(part not in ["-", ""] for part in parts[3:]):
+                # 有记录才保存
+                safe_name = f"{p.full_name}_{p.subject_code}_简化记录.txt"
+                zip_file.writestr(safe_name, line)
+                has_content = True
+        if not has_content:
+            zip_file.writestr("提示.txt", f"所选时间段 {req.start_date} 至 {req.end_date} 内无任何患者活动记录。")
+
+    zip_buffer.seek(0)
+    zip_filename = f"simple_records_{req.start_date}_{req.end_date}.zip"
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
     )
