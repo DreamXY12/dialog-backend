@@ -219,6 +219,21 @@ class NurseLoginCode(Base):
         comment="护士注册临时账号类型:official/test，注册完成后迁移至nurse表"
     )
 
+# 测试账号名单，按需维护
+test_subject_codes = [
+    "RRRR",
+    "R123",
+    "R134",
+    "R133",
+    "R000",
+    "R456",
+    "R400",
+    "R777",
+    "R301",
+    "R312",
+    "R304"
+    # 在这里追加更多测试subject_code
+]
 # ---------------------------
 # 患者表模型（完全匹配patient表结构）
 # ---------------------------
@@ -369,17 +384,28 @@ class Patient(TimeStampMixIn, Base):
 
     @staticmethod
     def official_subject_sql_filter():
-        """同步Session可用的正式受试者过滤条件"""
-        return func.regexp_like(Patient.subject_code, r'^R.{3}$')
-
+        """同步Session可用的正式受试者过滤条件
+            规则：匹配Rxxxx格式，同时排除指定测试账号列表
+        """
+        cond_format = func.regexp_like(Patient.subject_code, r'^R.{3}$')
+        cond_not_test = Patient.subject_code.notin_(test_subject_codes)
+        return cond_format & cond_not_test
 
     @staticmethod
     def test_subject_sql_filter():
-        """同步Session可用的测试病人过滤条件"""
+        """同步Session可用的测试病人过滤条件
+            规则：
+            1. subject_code为空
+            OR
+            2. 不匹配正式受试者正则 ^R.{3}$
+            OR
+            3. 匹配正则，但属于黑名单内的测试账号
+        """
         # 测试病人：为空 或 不匹配正则
         return or_(
             Patient.subject_code.is_(None),
-            ~func.regexp_like(Patient.subject_code, r'^R.{3}$')
+            ~func.regexp_like(Patient.subject_code, r'^R.{3}$'),
+            Patient.subject_code.in_(test_subject_codes)
         )
     # 计算属性（无修改）
     @property
