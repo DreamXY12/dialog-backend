@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, Query,HTTPException
+from fastapi import APIRouter, Depends, Query,HTTPException,UploadFile,File
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, and_, case
 from typing import List
 from datetime import date, datetime,time
 from api.s3_service import s3_service
 from sql.start import get_db
+from api.food_service import food_service
 from sql.people_models import (
     Patient,
     Case,
@@ -660,3 +661,51 @@ def export_simple_patient_data(
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
     )
+
+@router.post("/upload-food-image")
+async def admin_upload_food_image(
+    patient_id: int = Query(..., description="患者ID"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    # _ = Depends(admin_required)   # 如果需要权限验证，取消注释并实现
+):
+    """
+    管理员为指定患者上传单张食物图片（时间从文件名中提取）
+    """
+    # 验证患者存在
+    patient = db.get(Patient, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="患者不存在")
+
+    # 1. 从文件名中提取时间（格式：YYYY-MM-DD_HH-MM-SS）
+    #    如果匹配失败，则使用当前时间
+    import re
+    match = re.search(r'(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})', file.filename)
+    if match:
+        date_part, time_part = match.groups()
+        # 将下划线分隔转为空格，替换 '-' 为 ':' 得到 HH:MM:SS
+        time_str = time_part.replace('-', ':')
+        eat_time = f"{date_part} {time_str}"
+    else:
+        # 无匹配时使用当前时间（字符串格式）
+        from datetime import datetime
+        eat_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    try:
+        file_bytes = await file.read()
+        result = await food_service.upload(
+            db=db,
+            patient_id=patient_id,
+            file_bytes=file_bytes,
+            filename=file.filename,
+            content_type=file.content_type or "application/octet-stream",
+            remark=None,          # 无备注
+            eat_time=eat_time     # 从文件名提取或当前时间
+        )
+        return {
+            "id": result.id,
+            "image_url": result.image_url,
+            "upload_timestamp": result.upload_timestamp
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
