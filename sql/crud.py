@@ -12,11 +12,21 @@ from sql.models import User, Query, Session, Invitation
 from sql.people_models import Case
 from sqlalchemy.orm import Session as Connection
 from datetime import datetime
-from sqlalchemy import and_, update, insert, Table
+from sqlalchemy import and_, update, insert, Table,or_
 from sqlalchemy import (
     Integer, String, Date, DateTime, DECIMAL,
     Index, ForeignKey, Enum, func,Float
 )
+from datetime import date
+
+def _eq_or_both_null(col, value):
+    """
+    处理可空字段相等判断：
+    col == value ；当两边都是None时也视为相等
+    """
+    if value is None:
+        return col.is_(None)
+    return col == value
 
 '''clean work space'''
 def init_models():
@@ -126,21 +136,23 @@ def upsert_patient_score(
 
 ):
     case_table: Table = Case.__table__
+    today: date = date.today()
 
     # ==============================
     # 👇 条件也补齐 8 个字段
     # ==============================
     condition = and_(
         case_table.c.user_id == user_id,
-        case_table.c.hba1c == hba1c,
-        case_table.c.fasting_glucose == fasting_glucose,
-        case_table.c.hdl_cholesterol == hdl_cholesterol,
-        case_table.c.triglyceride == triglyceride,
-        case_table.c.total_cholesterol == total_cholesterol,
-        case_table.c.ldl_cholesterol == ldl_cholesterol,
-        case_table.c.creatinine == creatinine,
-        case_table.c.potassium == potassium,
-        case_table.c.test_date == test_date
+        _eq_or_both_null(case_table.c.hba1c, hba1c),
+        _eq_or_both_null(case_table.c.fasting_glucose, fasting_glucose),
+        _eq_or_both_null(case_table.c.hdl_cholesterol, hdl_cholesterol),
+        _eq_or_both_null(case_table.c.triglyceride, triglyceride),
+        _eq_or_both_null(case_table.c.total_cholesterol, total_cholesterol),
+        _eq_or_both_null(case_table.c.ldl_cholesterol, ldl_cholesterol),
+        _eq_or_both_null(case_table.c.creatinine, creatinine),
+        _eq_or_both_null(case_table.c.potassium, potassium),
+        case_table.c.test_date == test_date,
+        func.date(case_table.c.create_time) == today
     )
 
     existing_row = conn.execute(
@@ -189,6 +201,56 @@ def upsert_patient_score(
         result = conn.execute(insert_stmt)
         conn.commit()
         return {"action": "created", "case_id": result.inserted_primary_key[0]}
+
+def create_patient_score(
+    conn: Connection,
+    user_id: int,
+    hba1c: float | None,
+    fasting_glucose: float | None,
+    hdl_cholesterol: float | None,
+    triglyceride: float | None,
+
+    # 新增 4 个输入参数
+    total_cholesterol: float | None,
+    ldl_cholesterol: float | None,
+    creatinine: float | None,
+    potassium: float | None,
+
+    time_spec: int,
+    test_date: Date,
+    new_score: float,
+    new_score_2: float,
+    new_score_10: float,
+    analysis_result: str | None = None,
+    analysis_result_2: str | None = None,
+    analysis_result_10: str | None = None,
+
+):
+    case_table: Table = Case.__table__
+
+    # 直接执行插入，不再查询、不再更新，每次都新建记录
+    insert_stmt = insert(case_table).values(
+        user_id=user_id,
+        hba1c=hba1c,
+        fasting_glucose=fasting_glucose,
+        hdl_cholesterol=hdl_cholesterol,
+        triglyceride=triglyceride,
+        total_cholesterol=total_cholesterol,
+        ldl_cholesterol=ldl_cholesterol,
+        creatinine=creatinine,
+        potassium=potassium,
+        time_spec=time_spec,
+        test_date=test_date,
+        score=new_score,
+        score_2=new_score_2,
+        score_10=new_score_10,
+        analysis_result=analysis_result,
+        analysis_result_2=analysis_result_2,
+        analysis_result_10=analysis_result_10
+    )
+    result = conn.execute(insert_stmt)
+    conn.commit()
+    return {"action": "created", "case_id": result.inserted_primary_key[0]}
 
 def get_cases_by_user(db: Connection, user):
     # 根据用户类型获取用户ID

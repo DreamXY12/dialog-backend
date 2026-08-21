@@ -11,7 +11,7 @@ from typing_extensions import Annotated
 from sqlalchemy.orm import Session as Connection
 from datetime import datetime
 from sql.people_models import Case
-from sql.crud import upsert_patient_score
+from sql.crud import upsert_patient_score,create_patient_score
 from sql.risk_crud import (
     get_diabetes_records_by_user_and_date,
     get_diabetes_by_date_range_paginated

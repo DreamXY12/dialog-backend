@@ -351,15 +351,24 @@ def get_patient_monitor_detail(
     ai_date_set = {row.stat_date for row in ai_rows if row.stat_date}  # 用于 has_ai_chat
     ai_count_dict = {row.stat_date: row.cnt for row in ai_rows}  # 用于计数
 
-    # -------- 2.风险预测 Case 按天统计 --------
-    stmt_case = (
-        select(func.date(Case.create_time).label("stat_date"), func.count(1).label("cnt"))
-        .where(Case.user_id == patient.patient_id)
-        .group_by(func.date(Case.create_time))
-    )
-    case_rows = db.execute(stmt_case).all()
-    predict_date_set = {row.stat_date for row in case_rows if row.stat_date}
-    predict_count_dict = {row.stat_date: row.cnt for row in case_rows}
+    # -------- 2. 风险预测按天统计（根据 has_diabetes 选择表） --------
+    if patient.has_diabetes == "Yes":
+        # CKD 肾病风险预测（使用 create_time 作为日期）
+        stmt_risk = (
+            select(func.date(PatientCkdRiskRecord.create_time).label("stat_date"), func.count(1).label("cnt"))
+            .where(PatientCkdRiskRecord.patient_id == patient.patient_id)
+            .group_by(func.date(PatientCkdRiskRecord.create_time))
+        )
+    else:
+        # 糖尿病风险预测 (Case)
+        stmt_risk = (
+            select(func.date(Case.create_time).label("stat_date"), func.count(1).label("cnt"))
+            .where(Case.user_id == patient.patient_id)
+            .group_by(func.date(Case.create_time))
+        )
+    risk_rows = db.execute(stmt_risk).all()
+    predict_date_set = {row.stat_date for row in risk_rows if row.stat_date}
+    predict_count_dict = {row.stat_date: row.cnt for row in risk_rows}
 
     # -------- 3.食物图片上传 FoodImage 按天统计 --------
     stmt_food = (
