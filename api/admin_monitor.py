@@ -71,6 +71,56 @@ class PatientExportService:
         stmt = select(ChatRoom.room_id).where(ChatRoom.patient_id == patient_id)
         return self.db.scalar(stmt)
 
+    def _get_ai_session_stats(self, patient_id: int):
+        """
+        统计指定患者在时间段内的AI对话会话数及最近一次会话时间。
+        会话以患者发送消息的 session_uuid 去重计数。
+        """
+        room_id = self.get_room_id_by_patient(patient_id)
+        if not room_id:
+            return None, 0
+
+        stmt = (
+            select(
+                Message.session_uuid,
+                func.max(Message.create_time).label("last_time")
+            )
+            .where(
+                Message.room_id == room_id,
+                Message.sender_type == SenderType.PATIENT,  # 患者发起的消息
+                func.date(Message.create_time).between(self.start_date, self.end_date),
+                Message.session_uuid.isnot(None)
+            )
+            .group_by(Message.session_uuid)
+        )
+        rows = self.db.execute(stmt).all()
+        if not rows:
+            return None, 0
+        last_time = max(row.last_time for row in rows)
+        return last_time, len(rows)
+
+    def _count_food_upload_events(self, patient_id: int):
+        """
+        计算食物上传事件数（5分钟内多张照片合并为一次），并返回最后上传时间。
+        """
+        foods = self.get_food_images(patient_id)
+        if not foods:
+            return None, 0
+        # 按时间升序
+        foods_sorted = sorted(foods, key=lambda f: f.upload_timestamp)
+        last_time = foods_sorted[-1].upload_timestamp
+        event_count = 0
+        prev = None
+        for f in foods_sorted:
+            if prev is None:
+                event_count += 1
+            else:
+                delta = (f.upload_timestamp - prev).total_seconds()
+                if delta >= 300:  # 5分钟（300秒）
+                    event_count += 1
+            prev = f.upload_timestamp
+        return last_time, event_count
+
     def get_ai_messages(self, patient_id: int):
         """获取患者在指定时间段内的AI对话记录（患者与AI的消息）"""
         room_id = self.get_room_id_by_patient(patient_id)
@@ -225,58 +275,58 @@ class PatientExportService:
         return "\n".join(lines)
 
     def get_simple_patient_data(self, patient: Patient) -> dict:
-        """
-        获取单个患者的简化汇总数据（时间段内最近一次记录日期）
-        """
-        # AI 对话（仅患者发送的消息）
-        ai_msgs = self.get_ai_messages(patient.patient_id)
-        last_ai_date = max((m.create_time for m in ai_msgs), default=None)
+        # 1. AI 会话统计
+        ai_last, ai_count = self._get_ai_session_stats(patient.patient_id)
 
-        if patient.has_diabetes!="Yes":
-            # 糖尿病风险预测（使用 Case 表）
-            cases = self.get_diabetes_risks(patient.patient_id)
-            last_risk_date = max((c.update_time for c in cases), default=None)
+        # 2. 风险预测统计
+        if patient.has_diabetes != "Yes":
+            records = self.get_diabetes_risks(patient.patient_id)
+            # 糖尿病使用 Case.update_time 作为最近时间
+            risk_last = max((r.update_time for r in records), default=None)
         else:
-            # CKD 风险预测（使用 PatientCkdRiskRecord）
-            ckd_records = self.get_ckd_risks(patient.patient_id)
-            last_risk_date = max((r.create_time for r in ckd_records), default=None)
+            records = self.get_ckd_risks(patient.patient_id)
+            risk_last = max((r.create_time for r in records), default=None)
+        risk_count = len(records)
 
-        # 食物图片上传
-        foods = self.get_food_images(patient.patient_id)
-        last_food_date = max((f.upload_timestamp for f in foods), default=None)
+        # 3. 食物上传事件统计
+        food_last, food_event_count = self._count_food_upload_events(patient.patient_id)
 
         return {
-            "patient_id": patient.subject_code, # 这是的
+            "patient_id": patient.subject_code,
             "full_name": patient.full_name,
-            "phone": remove_area_code(patient.phone,patient.phone_area_code),
-            "last_ai_date": last_ai_date,
-            "last_risk_date": last_risk_date,
-            "last_food_date": last_food_date,
+            "phone": remove_area_code(patient.phone, patient.phone_area_code),
+            "last_ai_date": ai_last,
+            "ai_session_count": ai_count,
+            "last_risk_date": risk_last,
+            "risk_predict_count": risk_count,
+            "last_food_date": food_last,
+            "food_upload_event_count": food_event_count,
         }
 
     def format_simple_report(self, patient: Patient) -> str:
-        """生成单个患者的简化报告（一行制表符分隔）"""
         data = self.get_simple_patient_data(patient)
 
-        # 统一格式化日期：YYYY-MM-DD HH:MM:SS
         def fmt_date(d):
             if d is None:
                 return "-"
-            # 如果是 datetime 对象
             if isinstance(d, datetime):
                 return d.strftime('%Y-%m-%d %H:%M:%S')
-            # 如果是 date 对象（不含时间）
             if isinstance(d, date):
                 return d.strftime('%Y-%m-%d 00:00:00')
-            # 其他情况（如字符串）直接转字符串
             return str(d)
 
-        ai = fmt_date(data["last_ai_date"])
-        risk = fmt_date(data["last_risk_date"])
-        food = fmt_date(data["last_food_date"])
-
-        # 注意：patient_id 已经改为 subject_code
-        return f"{data['patient_id']}\t{data['full_name']}\t{data['phone']}\t{ai}\t{risk}\t{food}"
+        # 组装制表符分隔行
+        return "\t".join([
+            data["patient_id"],
+            data["full_name"],
+            data["phone"],
+            fmt_date(data["last_ai_date"]),
+            str(data["ai_session_count"]),
+            fmt_date(data["last_risk_date"]),
+            str(data["risk_predict_count"]),
+            fmt_date(data["last_food_date"]),
+            str(data["food_upload_event_count"]),
+        ])
 
 @router.get("/patient-list", response_model=PatientMonitorListResp)
 def get_patient_simple_list(
@@ -632,7 +682,12 @@ def export_simple_patient_data(
     # ---------- 合并模式 ----------
     if req.mode == "combined":
         # 生成表头
-        header = "ID\t姓名\t电话\t上次AI对话日期\t上次风险预测日期\t上次食物上传日期"
+        header = "\t".join([
+            "ID", "姓名", "电话",
+            "上次AI对话日期", "AI对话次数",
+            "上次风险预测日期", "风险预测次数",
+            "上次食物上传日期", "食物上传次数(5分钟内合并)"
+        ])
         lines = [header]
         for p in patients:
             line = service.format_simple_report(p)
