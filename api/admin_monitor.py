@@ -73,8 +73,7 @@ class PatientExportService:
 
     def _get_ai_session_stats(self, patient_id: int):
         """
-        统计指定患者在时间段内的AI对话会话数及最近一次会话时间。
-        会话以患者发送消息的 session_uuid 去重计数。
+        统计指定患者在时间段内主动发送的AI对话消息条数及最后一次消息时间。
         """
         room_id = self.get_room_id_by_patient(patient_id)
         if not room_id:
@@ -82,22 +81,19 @@ class PatientExportService:
 
         stmt = (
             select(
-                Message.session_uuid,
+                func.count(1).label("msg_count"),
                 func.max(Message.create_time).label("last_time")
             )
             .where(
                 Message.room_id == room_id,
-                Message.sender_type == SenderType.PATIENT,  # 患者发起的消息
+                Message.sender_type == SenderType.PATIENT,
                 func.date(Message.create_time).between(self.start_date, self.end_date),
-                Message.session_uuid.isnot(None)
             )
-            .group_by(Message.session_uuid)
         )
-        rows = self.db.execute(stmt).all()
-        if not rows:
+        result = self.db.execute(stmt).first()
+        if not result or result.msg_count == 0:
             return None, 0
-        last_time = max(row.last_time for row in rows)
-        return last_time, len(rows)
+        return result.last_time, result.msg_count
 
     def _count_food_upload_events(self, patient_id: int):
         """
