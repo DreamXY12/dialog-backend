@@ -141,9 +141,9 @@ class PatientExportService:
             select(Case)
             .where(
                 Case.user_id == patient_id,
-                func.date(Case.test_date).between(self.start_date, self.end_date)
+                func.date(Case.create_time).between(self.start_date, self.end_date)
             )
-            .order_by(Case.test_date)
+            .order_by(Case.create_time)
         )
         return self.db.scalars(stmt).all()
 
@@ -154,9 +154,9 @@ class PatientExportService:
             select(PatientCkdRiskRecord)
             .where(
                 PatientCkdRiskRecord.patient_id == patient_id,
-                func.date(PatientCkdRiskRecord.test_date).between(self.start_date, self.end_date)
+                func.date(PatientCkdRiskRecord.create_time).between(self.start_date, self.end_date)
             )
-            .order_by(PatientCkdRiskRecord.test_date)
+            .order_by(PatientCkdRiskRecord.create_time)
         )
         return self.db.scalars(stmt).all()
 
