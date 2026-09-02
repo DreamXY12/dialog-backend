@@ -24,6 +24,7 @@ import httpx
 import urllib3
 from sqlalchemy.exc import SQLAlchemyError, PendingRollbackError
 from sql.ai_curd import delete_patient_current_session_and_clear,update_chat_room_current_session_uuid_by_patient
+from sql.nurse_curd import update_nurses_last_login
 
 import logging
 # 配置日志（非常重要）
@@ -57,6 +58,7 @@ REDIS_ROOM_INFO = "chat:room_info"
 REDIS_AI_REPLY_LOCK = "chat:ai_replying"
 # 用户登录时间记录相关 Redis Key
 REDIS_LAST_SEEN = "user:last_seen"           # Hash: patient_id -> timestamp (秒)
+REDIS_LAST_SEEN_NURSE   = "user:last_seen_nurse"
 REDIS_LOGIN_FLAG = "user:login_flag"         # String 临时锁，用于去重
 LOGIN_FLAG_EXPIRE = 60                       # 1分钟内不重复记录
 SYNC_INTERVAL = 300                           # 每300秒同步一次到 MySQL
@@ -121,6 +123,29 @@ async def sync_last_seen_to_db():
                 db.close()
 
             await redis.hdel(REDIS_LAST_SEEN, *[str(u[0]) for u in updates])
+
+            # ---------- 处理护士 ----------
+            nurse_data = await redis.hgetall(REDIS_LAST_SEEN_NURSE)
+            if nurse_data:
+                updates_n = []
+                for nid_str, ts_str in nurse_data.items():
+                    try:
+                        nid = int(nid_str)
+                        ts = int(ts_str)
+                    except ValueError:
+                        continue
+                    updates_n.append((nid, ts))
+                if updates_n:
+                    db = next(get_db())
+                    try:
+                        update_nurses_last_login(db, updates_n)
+                        logger.info(f"✅ 批量更新了 {len(updates_n)} 条护士登录时间")
+                    except Exception as e:
+                        db.rollback()
+                        logger.error(f"❌ 批量更新护士登录时间失败: {e}")
+                    finally:
+                        db.close()
+                    await redis.hdel(REDIS_LAST_SEEN_NURSE, *[str(u[0]) for u in updates_n])
 
         except Exception as e:
             logger.error(f"❌ 同步任务异常: {e}")
@@ -298,12 +323,22 @@ async def connect(sid, environ, auth):
     print(f"{role} {user_id} 上线")
 
     # 记录患者最后登录时间（仅限患者，带 1 分钟去重）
-    if role == "patient":
-        flag_key = f"{REDIS_LOGIN_FLAG}:{user_id}"
-        if not await redis.exists(flag_key):
-            await redis.setex(flag_key, LOGIN_FLAG_EXPIRE, "1")
-            current_ts = int(time.time())
-            await redis.hset(REDIS_LAST_SEEN, user_id, current_ts)
+    # if role == "patient":
+    #     flag_key = f"{REDIS_LOGIN_FLAG}:{user_id}"
+    #     if not await redis.exists(flag_key):
+    #         await redis.setex(flag_key, LOGIN_FLAG_EXPIRE, "1")
+    #         current_ts = int(time.time())
+    #         await redis.hset(REDIS_LAST_SEEN, user_id, current_ts)
+
+    # 记录最后登录时间（患者和护士共用去重锁，但 key 带上角色）
+    flag_key = f"login_flag:{role}:{user_id}"
+    if not await redis.exists(flag_key):
+        await redis.setex(flag_key, LOGIN_FLAG_EXPIRE, "1")
+        current_ts = int(time.time())
+        if role == "patient":
+            await redis.hset(REDIS_LAST_SEEN, user_id, current_ts)   # 仍用原来的 REDIS_LAST_SEEN
+        elif role == "nurse":
+            await redis.hset(REDIS_LAST_SEEN_NURSE, user_id, current_ts)
 
     if role == "patient":
         await get_nurse_online_status(sid, auth)
