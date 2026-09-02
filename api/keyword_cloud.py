@@ -55,7 +55,7 @@ class TextRequest(BaseModel):
 # -------------------------------------------------------------------------
 def extract_keywords(text: str, top_k: int = 15):
     # 繁体 → 简体
-    text = cc.convert(text)
+    #text = cc.convert(text)
 
     # 分词（按中文词汇简单切分）
     words = [w for w in text.strip() if len(w) > 0]
