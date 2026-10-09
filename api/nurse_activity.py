@@ -431,6 +431,7 @@ SUMMARY_ACTION_ORDER = [
     ("open_chat_room",    "打开聊天室"),
     ("send_chat_message", "发送聊天消息"),
     ("view_daily_report", "查看每日报告"),
+    ("click_word_cloud",  "点击词云关键词"),
 ]
 
 

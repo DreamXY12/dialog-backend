@@ -26,6 +26,7 @@ class NurseActionType(str, enum.Enum):
     VIEW_TEST_HISTORY = "view_test_history"      # 查看某病人的检测记录详情
     SEND_CHAT_MESSAGE = "send_chat_message"      # 在聊天室发送消息
     VIEW_DAILY_REPORT = "view_daily_report"      # 查看某病人某天的每日报告
+    CLICK_WORD_CLOUD = "click_word_cloud"        # 点击词云关键词
     OPEN_CHAT_ROOM = "open_chat_room"            # 护士进入聊天室
 
 
