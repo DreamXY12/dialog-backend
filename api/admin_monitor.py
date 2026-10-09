@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query,HTTPException,UploadFile,File
+from fastapi import APIRouter, Depends, Query,HTTPException,UploadFile,File,Body
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, and_, case
 from typing import List
@@ -94,6 +94,29 @@ class PatientExportService:
         if not result or result.msg_count == 0:
             return None, 0
         return result.last_time, result.msg_count
+
+    def _count_ai_chat_last_7_days(self, patient_id: int) -> int:
+        """
+        统计截止到 self.end_date 前一天，往前推 7 天的患者主动发送的 AI 对话消息数。
+        区间：[end_date - 7, end_date - 1]，共 7 天，不含 end_date 当天。
+        """
+        from datetime import timedelta
+        room_id = self.get_room_id_by_patient(patient_id)
+        if not room_id:
+            return 0
+
+        week_end = self.end_date - timedelta(days=1)  # 不含当天
+        week_start = week_end - timedelta(days=6)  # 再往前 6 天，共 7 天
+
+        stmt = (
+            select(func.count(1))
+            .where(
+                Message.room_id == room_id,
+                Message.sender_type == SenderType.PATIENT,
+                func.date(Message.create_time).between(week_start, week_end),
+            )
+        )
+        return self.db.scalar(stmt) or 0
 
     def _count_food_upload_events(self, patient_id: int):
         """
@@ -287,6 +310,9 @@ class PatientExportService:
         # 3. 食物上传事件统计
         food_last, food_event_count = self._count_food_upload_events(patient.patient_id)
 
+        # 4. 近 7 天 AI 对话次数（独立于导出时间段）
+        ai_chat_last_7_days = self._count_ai_chat_last_7_days(patient.patient_id)
+
         return {
             "patient_id": patient.subject_code,
             "full_name": patient.full_name,
@@ -297,6 +323,7 @@ class PatientExportService:
             "risk_predict_count": risk_count,
             "last_food_date": food_last,
             "food_upload_event_count": food_event_count,
+            "ai_chat_last_7_days": ai_chat_last_7_days,
         }
 
     def format_simple_report(self, patient: Patient) -> str:
@@ -318,6 +345,7 @@ class PatientExportService:
             data["phone"],
             fmt_date(data["last_ai_date"]),
             str(data["ai_session_count"]),
+            str(data["ai_chat_last_7_days"]),
             fmt_date(data["last_risk_date"]),
             str(data["risk_predict_count"]),
             fmt_date(data["last_food_date"]),
@@ -681,6 +709,7 @@ def export_simple_patient_data(
         header = "\t".join([
             "ID", "姓名", "电话",
             "上次AI对话日期", "AI对话次数",
+            f"近一周AI对话次数",
             "上次风险预测日期", "风险预测次数",
             "上次食物上传日期", "食物上传次数(5分钟内合并)"
         ])
@@ -769,3 +798,80 @@ async def admin_upload_food_image(
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/export-ai-chat")
+def export_ai_chat_only(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    """
+    仅导出所有患者与AI的对话消息。
+    - 每行一条消息，制表符分隔，直接粘贴 Excel 可对齐
+    - include_ai_reply 控制是否包含 AI 回复
+    """
+    start_str = payload.get("start_date")
+    end_str = payload.get("end_date")
+    include_ai_reply = bool(payload.get("include_ai_reply", False))
+
+    if not start_str or not end_str:
+        raise HTTPException(status_code=400, detail="缺少开始或结束日期")
+
+    try:
+        start_date = date.fromisoformat(start_str)
+        end_date = date.fromisoformat(end_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式不正确，应为 YYYY-MM-DD")
+
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+
+    service = PatientExportService(db, start_date, end_date)
+    patients = service.get_patients()
+
+    header = [
+        "患者ID", "受试者编号", "患者姓名", "电话",
+        "消息时间", "发送者", "消息内容",
+    ]
+    lines: List[str] = ["\t".join(header)]
+
+    if not patients:
+        lines.append(f"所选时间段 {start_date} 至 {end_date} 内无任何正式患者记录。")
+    else:
+        for p in patients:
+            msgs = service.get_ai_messages(p.patient_id)
+            if not msgs:
+                continue
+
+            phone = remove_area_code(p.phone, p.phone_area_code)
+            for m in msgs:
+                sender_val = (
+                    m.sender_type.value
+                    if hasattr(m.sender_type, "value")
+                    else str(m.sender_type)
+                )
+                if sender_val == "patient":
+                    pass
+                elif include_ai_reply and sender_val == "ai":
+                    pass
+                else:
+                    continue
+
+                content = (m.content or "").replace("\t", " ").replace("\r", " ").replace("\n", " ")
+                time_str = m.create_time.strftime("%Y-%m-%d %H:%M:%S") if m.create_time else ""
+                lines.append("\t".join([
+                    str(p.patient_id),
+                    p.subject_code or "",
+                    p.full_name,
+                    phone,
+                    time_str,
+                    sender_val,       # patient / ai
+                    content,
+                ]))
+
+    content = "\n".join(lines)
+    filename = f"ai_chat_export_{start_date}_{end_date}.txt"
+    return Response(
+        content=content.encode("utf-8-sig"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
