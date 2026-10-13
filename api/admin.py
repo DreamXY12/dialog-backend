@@ -1174,38 +1174,41 @@ QUIZ_FULL_TEXT = {
 # 基礎健康欄位 答案翻譯對照表（解決英文輸出問題）
 HEALTH_VALUE_TRANS = {
     "zh-CN": {
-        "Less than 1 hour": "少于1小時",
-        "1-2 hours": "1-2小時",
-        "2-3 hours": "2-3小時",
-        "More than 3 hours": "3小時以上",
-        "Non-drinker": "不飲酒",
-        "Occasional": "偶爾飲酒",
-        "Regular": "經常飲酒",
-        "Never": "從不吸煙",
-        "Former smoker": "已戒煙",
-        "Current smoker": "現吸煙",
+        "No exercise": "不运动",
+        "Less than 1 hour": "少于1小时",
+        "1-2 hours": "1-2小时",
+        "2-3 hours": "2-3小时",
+        "3 hours or more": "3小时以上",
+        "Non-drinker": "不饮酒",
+        "Ex-drinker": "已戒酒",
+        "Social drinker": "社交饮酒",
+        "Chronic drinker": "长期饮酒",
+        "Never": "从不吸烟",
+        "Ex-smoker": "已戒烟",
+        "Smoker": "吸烟",
         "Yes": "是",
         "No": "否",
-        "Not applicable": "不適用"
+        "Not applicable": "不适用",
     },
     "zh-HK": {
+        "No exercise": "不運動",
         "Less than 1 hour": "少於1小時",
         "1-2 hours": "1-2小時",
         "2-3 hours": "2-3小時",
-        "More than 3 hours": "3小時以上",
+        "3 hours or more": "3小時以上",
         "Non-drinker": "不飲酒",
-        "Occasional": "偶爾飲酒",
-        "Regular": "經常飲酒",
+        "Ex-drinker": "已戒酒",
+        "Social drinker": "社交飲酒",
+        "Chronic drinker": "長期飲酒",
         "Never": "從不吸煙",
-        "Former smoker": "已戒煙",
-        "Current smoker": "現吸煙",
+        "Ex-smoker": "已戒煙",
+        "Smoker": "吸煙",
         "Yes": "是",
         "No": "否",
-        "Not applicable": "不適用"
+        "Not applicable": "不適用",
     },
-    "en": {}
+    "en": {},
 }
-
 # 多語言文本模板
 TXT_LANG_TEXT = {
     "zh-CN": {
