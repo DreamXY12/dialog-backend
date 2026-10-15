@@ -2,22 +2,16 @@ from fastapi import APIRouter
 from api import auth,register,sms_router,patients,nurses,case,feedback,chat_history,CKD_server,AI_server,risk_server,code_login_generator
 from api import auth_code,register_code,speech_recognition_server,food_images_service,questionnaire_server,key_word_to_text_server
 from api import admin,admin_auth,admin_monitor
-from api import public_server,nurse_activity
+from api import public_server,nurse_activity,patient_link_click
 
 api_router = APIRouter(prefix="/api/v1")
 
-# api_router.include_router(users.router)
-# api_router.include_router(user.router)
-# api_router.include_router(session.router)
-# api_router.include_router(newmessages.router)
-# api_router.include_router(wechat_message.router)
 api_router.include_router(case.router)
 api_router.include_router(auth.router)
 api_router.include_router(register.router)
 api_router.include_router(sms_router.router)
 api_router.include_router(patients.router)
 api_router.include_router(nurses.router)
-#api_router.include_router(robot.router)
 api_router.include_router(feedback.router)
 api_router.include_router(chat_history.router)
 api_router.include_router(CKD_server.router)
@@ -35,9 +29,4 @@ api_router.include_router(key_word_to_text_server.router)
 api_router.include_router(admin_monitor.router)
 api_router.include_router(public_server.router)
 api_router.include_router(nurse_activity.router)
-
-# api_router.include_router(nurse.router)
-# api_router.include_router(patient.router)
-
-
-      
+api_router.include_router(patient_link_click.router)
