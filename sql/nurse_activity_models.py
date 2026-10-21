@@ -30,6 +30,7 @@ class NurseActionType(str, enum.Enum):
     OPEN_CHAT_ROOM = "open_chat_room"            # 护士进入聊天室
     VIEW_QUESTIONNAIRE = "view_questionnaire"    # 护士查看调查问卷
     DOWNLOAD_QUESTIONNAIRE_TXT = "download_questionnaire_txt"  # 护士下载调查问卷
+    download_chat_record = "download_chat_record"              # 护士下载某个用户的对话
 
 class NurseTestType(str, enum.Enum):
     """检测记录类型"""
@@ -89,7 +90,7 @@ class NurseActivityLog(Base):
     action_type: Mapped[NurseActionType] = mapped_column(
         Enum(NurseActionType, values_callable=lambda e: [i.value for i in e]),
         nullable=False,
-        comment="操作类型：add_patient / view_chat_history / view_test_history / send_chat_message / view_daily_report / click_word_cloud / open_chat_room / view_questionnaire / download_questionnaire_txt"
+        comment="操作类型：add_patient / view_chat_history / view_test_history / send_chat_message / view_daily_report / click_word_cloud / open_chat_room / view_questionnaire / download_questionnaire_txt / download_chat_record"
     )
 
     # 患者 & 聊天室

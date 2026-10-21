@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, Path, Depends,status
 from pydantic import BaseModel
 from typing import List, Optional
-from sql.people_models import Nurse,Message
 import re
 from sqlalchemy.orm import Session
 from sql.start import get_db
@@ -17,6 +16,10 @@ from datetime import date
 from sql.patient_report_service import get_patient_daily_chat_report
 from api.chat_server import cache_patient_nurse, remove_patient_nurse_cache
 from sql.people_models import NurseAccountType,Patient
+from sql.patient_ai_summary_service import get_patient_ai_summary
+from sql.people_models import Nurse, Message
+from datetime import timedelta
+from sqlalchemy import or_, and_
 
 # 初始化路由
 router = APIRouter(prefix="/nurses", tags=["nurses"])
@@ -434,3 +437,99 @@ def patient_chat_report(
         report_date=target_date
     )
     return {"code": 200, "message": "success", "data": report}
+
+@router.get("/patient/ai-summary", summary="患者一段时间内对话的 AI 总结")
+async def patient_ai_summary(
+    patient_id: int = Query(..., description="患者ID"),
+    nurse_id: int = Query(..., description="当前登录护士ID"),
+    start_date: str = Query(..., description="开始日期 YYYY-MM-DD"),
+    end_date: str = Query(..., description="结束日期 YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+):
+    """
+    - 条数上限 150，超限不调 AI，直接返回 too_many
+    - 结果 Redis 缓存 1 小时
+    """
+    try:
+        sd = date.fromisoformat(start_date)
+        ed = date.fromisoformat(end_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式错误，应为 YYYY-MM-DD")
+
+    if sd > ed:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+
+    # 上限：防止恶意/误传拉太长区间
+    if (ed - sd).days > 365:
+        raise HTTPException(status_code=400, detail="日期范围不能超过 365 天")
+
+    result = await get_patient_ai_summary(db, patient_id, sd, ed,nurse_id=nurse_id)
+    return {"code": 200, "message": "success", "data": result}
+
+@router.get("/messages/by-uuids", summary="按UUID列表查询消息（含上下文）")
+def get_messages_by_uuids(
+    uuids: str = Query(..., description="逗号分隔的 UUID 列表"),
+    context_min: int = Query(5, ge=0, le=60, description="前后上下文分钟数"),
+    db: Session = Depends(get_db),
+):
+    uuid_list = [u.strip() for u in uuids.split(",") if u.strip()]
+    if not uuid_list or len(uuid_list) > 20:
+        raise HTTPException(status_code=400, detail="UUID 数量无效（最多20）")
+
+    target_msgs = db.query(Message).filter(Message.message_uuid.in_(uuid_list)).all()
+    if not target_msgs:
+        return {"code": 200, "message": "success", "data": {"time_blocks": []}}
+
+    # 按 room_id 分组
+    by_room: dict[int, list] = {}
+    for m in target_msgs:
+        by_room.setdefault(m.room_id, []).append(m)
+
+    target_uuid_set = set(uuid_list)
+    time_blocks = []
+
+    for room_id, msgs in by_room.items():
+        # 每条目标消息扩展前后 context_min 分钟
+        ranges = []
+        for m in msgs:
+            s = m.create_time - timedelta(minutes=context_min)
+            e = m.create_time + timedelta(minutes=context_min)
+            ranges.append((s, e))
+
+        # 合并重叠区间
+        ranges.sort()
+        merged = [ranges[0]]
+        for s, e in ranges[1:]:
+            if s <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+            else:
+                merged.append((s, e))
+
+        # 查区间内所有消息
+        filters = [and_(Message.create_time >= s, Message.create_time <= e) for s, e in merged]
+        all_msgs = (
+            db.query(Message)
+            .filter(Message.room_id == room_id, or_(*filters))
+            .order_by(Message.create_time.asc())
+            .all()
+        )
+
+        msg_list = [
+            {
+                "message_uuid": m.message_uuid,
+                "sender_type": m.sender_type.value if hasattr(m.sender_type, "value") else m.sender_type,
+                "content": m.content or "",
+                "create_time": m.create_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "file_url": m.file_url,
+                "is_referenced": m.message_uuid in target_uuid_set,   # 👈 高亮用
+            }
+            for m in all_msgs
+        ]
+
+        time_blocks.append({
+            "block_start": merged[0][0].strftime("%Y-%m-%d %H:%M:%S"),
+            "block_end": merged[-1][1].strftime("%Y-%m-%d %H:%M:%S"),
+            "msg_list": msg_list,
+        })
+
+    return {"code": 200, "message": "success", "data": {"time_blocks": time_blocks}}

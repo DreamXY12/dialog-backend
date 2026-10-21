@@ -212,7 +212,7 @@ async def ai_public_chat(message: str, session_id: str = None, room_uuid: str = 
         payload["session_id"] = session_id
 
     try:
-        async with httpx.AsyncClient(verify=False, timeout=100.0) as client:
+        async with httpx.AsyncClient(verify=False, timeout=250.0) as client:
             res = await client.post(f"{AI_BASE_URL}/api/public/chat", json=payload)
         return res.status_code, res.json()
     except Exception as e:
@@ -321,14 +321,6 @@ async def connect(sid, environ, auth):
     await redis.hset(REDIS_USER_ROLE, user_id, role)
     await redis.hset(REDIS_SID_TO_USER, sid, user_id)
     print(f"{role} {user_id} 上线")
-
-    # 记录患者最后登录时间（仅限患者，带 1 分钟去重）
-    # if role == "patient":
-    #     flag_key = f"{REDIS_LOGIN_FLAG}:{user_id}"
-    #     if not await redis.exists(flag_key):
-    #         await redis.setex(flag_key, LOGIN_FLAG_EXPIRE, "1")
-    #         current_ts = int(time.time())
-    #         await redis.hset(REDIS_LAST_SEEN, user_id, current_ts)
 
     # 记录最后登录时间（患者和护士共用去重锁，但 key 带上角色）
     flag_key = f"login_flag:{role}:{user_id}"
@@ -439,59 +431,6 @@ async def join_room(sid, data):
     finally:
         db.close()
 
-# @sio.event
-# async def get_patients_online_status(sid, data):
-#     """
-#     护士页面：获取【自己绑定的所有病人】，并标注在线状态
-#     病人来源 = 数据库绑定列表
-#     在线状态 = Redis 真实在线
-#     """
-#     nurse_id = data.get("user_id")
-#     if not nurse_id:
-#         return
-#
-#     db: Session = next(get_db())
-#     try:
-#         # ✅ 从数据库获取【该护士绑定的所有病人】（必须全部显示）
-#         patient_ids = await get_nurse_patient_ids(str(nurse_id), db)
-#         online_list = []
-#
-#         for pid in patient_ids:
-#             pid_str = str(pid)
-#             # ✅ 逐个判断 Redis 是否在线
-#             is_online = await redis.hexists(REDIS_ONLINE_USER, pid_str)
-#             online_list.append({
-#                 "user_id": pid_str,
-#                 "online": is_online
-#             })
-#
-#         # 推送给护士
-#         await sio.emit("patients_online", online_list, to=sid)
-#     finally:
-#         db.close()
-#
-# @sio.event
-# async def get_nurse_online_status(sid, data):
-#     """
-#     病人页面加载 → 获取自己护士的在线状态
-#     前端：emitNurseIsOnline
-#     """
-#     patient_id = data.get("user_id")
-#     if not patient_id:
-#         return
-#
-#     db: Session = next(get_db())
-#     try:
-#         nurse_id = await get_patient_nurse_id(patient_id, db)
-#         if not nurse_id:
-#             await sio.emit("nurse_online", {"nurse_online": False}, to=sid)
-#             return
-#
-#         is_online = await redis.hexists(REDIS_ONLINE_USER, nurse_id)
-#         await sio.emit("nurse_online", {"nurse_online": is_online}, to=sid)
-#     finally:
-#         db.close()
-
 @sio.event
 async def get_patients_online_status(sid, data):
     nurse_id = data.get("user_id")
@@ -528,10 +467,6 @@ async def send_message(sid, data):
     if not room_uuid:
         return
 
-    # lock_key = f"{REDIS_AI_REPLY_LOCK}:{room_uuid}"
-    # if await redis.exists(lock_key):
-    #     return
-
     # 每次都拿全新的 DB 会话，不要复用
     db: Session = next(get_db())
 
@@ -545,21 +480,6 @@ async def send_message(sid, data):
         active_session = get_current_active_session(str(chat_room.room_id), db)
         room = await get_room(room_uuid)
         current_ai_session_id = room.get("ai_session_id")
-
-        is_active_session = True
-        #if not active_session:
-            # is_active_session = False
-
-        # if not active_session and role=="patient":
-        #     status, ai_data = await ai_public_chat(message=data["content"], room_uuid=room_uuid)
-        #     if status == 200 and "session_id" in ai_data:
-        #         current_ai_session_id = ai_data["session_id"]
-        #         room["ai_session_id"] = current_ai_session_id
-        #         await save_room(room_uuid, room)
-        #     active_session = await create_new_session(
-        #         room_id=str(chat_room.room_id), user_id=str(sender_id), role=role, db=db,
-        #         ai_session_id=current_ai_session_id
-        #     )
 
         message, _ = get_or_create_message(
             db=db,
@@ -657,10 +577,29 @@ async def send_message(sid, data):
     finally:
         db.close()
 
+async def _emit_ai_error(room_uuid: str, ai_message_uuid: Optional[str], content: str, is_timeout: bool = False):
+    """统一的 AI 错误/超时消息推送（不入库，避免污染聊天记录）"""
+    if not ai_message_uuid:
+        logger.warning(f"_emit_ai_error 无 ai_message_uuid，跳过 room={room_uuid} content={content}")
+        return
+    try:
+        await sio.emit("receive_message", {
+            "message_uuid": ai_message_uuid,
+            "room_uuid": room_uuid,
+            "user_id": "ai",
+            "role": "ai",
+            "content": content,
+            "streaming": False,
+            "chatMode": "AI",
+            "is_timeout": is_timeout,
+        }, room=room_uuid)
+    except Exception as e:
+        logger.error(f"_emit_ai_error 推送失败 room={room_uuid}: {e}")
+
 async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None, ai_message_uuid=None):
     # ==================== 第一阶段：获取必要信息（短暂持有 DB 连接） ====================
     lock_key = f"{REDIS_AI_REPLY_LOCK}:{room_uuid}"
-    await redis.set(lock_key, "1", ex=200)  # 锁时间延长到200秒，避免并发冲突
+    await redis.set(lock_key, "1", ex=400)  # 锁时间延长到200秒，避免并发冲突
 
     # 1. 从 Redis 获取房间信息（不需要 DB）
     room = await get_room(room_uuid)
@@ -671,6 +610,7 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
     patient_id = room.get("patient_id")
     if not patient_id:
         await redis.delete(lock_key)
+        await _emit_ai_error(room_uuid, ai_message_uuid, "會話信息異常，請刷新頁面後重試")
         return
 
     # 2. 从数据库快速获取 chat_room 信息，然后立即释放连接
@@ -679,6 +619,7 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
         chat_room = get_chat_room_by_uuid(db_quick, room_uuid)
         if not chat_room:
             await redis.delete(lock_key)
+            await _emit_ai_error(room_uuid, ai_message_uuid, "聊天室異常，請刷新頁面後重試")
             return
         room_id = chat_room.room_id
         # 还可以在这里获取其他必要的数据库信息（如 nurse_id 等），但不要过多
@@ -686,34 +627,37 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
         db_quick.close()  # ⚠️ 立即归还连接，之后不再持有
 
     # ==================== 第二阶段：发起 AI 请求（不持有任何 DB 连接） ====================
-    status, ai_data = await ai_public_chat(
-        message=user_msg["content"],
-        session_id="",
-        room_uuid=room_uuid
-    )
+    # ==================== 第一次调用（180 秒超时） ====================
+    try:
+        status, ai_data = await asyncio.wait_for(
+            ai_public_chat(
+                message=user_msg["content"],
+                session_id="",
+                room_uuid=room_uuid
+            ),
+            timeout=180.0
+        )
+        first_timed_out = False
+    except asyncio.TimeoutError:
+        status, ai_data = -1, {}
+        first_timed_out = True
+        logger.error(f"AI 第一次请求超时 180 秒 room={room_uuid}")
+
+    if status == 200:
+        logger.info(f"AI正常回复ID为{patient_id}的问题")
 
     if status != 200:
-        # AI 服务异常，直接返回错误消息
-        ai_msg = {
-            "message_uuid": ai_message_uuid,
-            "room_uuid": room_uuid,
-            "user_id": "ai",
-            "role": "ai",
-            "content": "AI 服務出現異常，抱歉，請稍後重試",
-            "streaming": False,
-            "chatMode": "AI",
-            "state": "stopped"
-        }
-        await sio.emit("receive_message", ai_msg, room=room_uuid)
+        timeout_msg = "AI 响应超时，请点击重试" if first_timed_out else "AI 服务出现异常，抱歉，请稍后重试"
+        await _emit_ai_error(room_uuid, ai_message_uuid, timeout_msg, is_timeout=True)
         await redis.delete(lock_key)
-        # 新增入库
+        # 入库（保留原有入库逻辑）
         db_quick: Session = next(get_db())
         get_or_create_message(
             db=db_quick,
             session_uuid="",
             sender_type="ai",
             sender_id=0,
-            content="AI 服務出現異常，抱歉，請稍後重試",
+            content=timeout_msg,
             message_uuid=ai_message_uuid,
             chat_mode="AI",
             temp_id=None,
@@ -728,41 +672,38 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
             db_quick.close()
         return
 
-    # 解析 AI 返回
     ai_state = ai_data.get("state", "").strip()
     ai_text = ai_data.get("message", "").strip()
     new_session_id = ai_data.get("session_id")
     reply_text = ""
 
-    # 处理 stopped 状态：可能需要重新发起 AI 请求（同样不持有连接）
-    if ai_state == "stopped":
-        # 第二次 AI 请求（不持有 DB 连接）
-        status2, ai_data2 = await ai_public_chat(
-            message=user_msg["content"],
-            session_id="",
-            room_uuid=room_uuid
-        )
+    # ==================== stopped 重试（仅在第一次未超时时允许，60 秒超时） ====================
+    if ai_state == "stopped" and not first_timed_out:
+        try:
+            status2, ai_data2 = await asyncio.wait_for(
+                ai_public_chat(
+                    message=user_msg["content"],
+                    session_id="",
+                    room_uuid=room_uuid
+                ),
+                timeout=60.0
+            )
+        except asyncio.TimeoutError:
+            status2, ai_data2 = -1, {}
+            logger.error(f"AI 重试超时 60 秒 room={room_uuid}")
+
         if status2 != 200:
-            ai_msg = {
-                "message_uuid": ai_message_uuid,
-                "room_uuid": room_uuid,
-                "user_id": "ai",
-                "role": "ai",
-                "content": "AI 服務出現異常，抱歉，請稍後重試",
-                "streaming": False,
-                "chatMode": "AI",
-                "state": "stopped"
-            }
-            await sio.emit("receive_message", ai_msg, room=room_uuid)
+            retry_msg = "AI 重試超時，請點擊重試"
+            await _emit_ai_error(room_uuid, ai_message_uuid, retry_msg, is_timeout=True)
             await redis.delete(lock_key)
-            # 新增入库
+            # 入库（保留原有逻辑）
             db_quick: Session = next(get_db())
             get_or_create_message(
                 db=db_quick,
                 session_uuid="",
                 sender_type="ai",
                 sender_id=0,
-                content="AI 服務出現異常，抱歉，請稍後重試",
+                content=retry_msg,
                 message_uuid=ai_message_uuid,
                 chat_mode="AI",
                 temp_id=None,
@@ -777,16 +718,10 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
                 db_quick.close()
             return
 
-        # 第二次 AI 请求成功
         new_session_id = ai_data2.get("session_id")
         reply_text = ai_data2.get("message", "").strip()
-
-        # 注意：这里的数据库操作（清除旧 session、创建新 session 等）将在第三阶段统一进行
-        # 但我们先把必要信息记录下来，后面一起处理
-        # 这里我们只需要知道需要清除并重建 session
         need_clear_and_recreate = True
-        # 保存第二次 AI 的 session_id 和 reply_text
-        ai_data = ai_data2  # 覆盖，方便后续统一处理
+        ai_data = ai_data2
     else:
         need_clear_and_recreate = False
 
@@ -974,17 +909,6 @@ async def mark_message_read(sid, data):
     finally:
         db.close()
 
-# async def broadcast_online_status(user_id: str, role: str, online: bool, db):
-#     data = {"user_id": user_id, "role": role, "online": online}
-#     if role == "patient":
-#         nid = await get_patient_nurse_id(user_id, db)
-#         if nid and await redis.hexists(REDIS_ONLINE_USER, nid):
-#             await sio.emit("user_online_status", data, to=await redis.hget(REDIS_ONLINE_USER, nid))
-#     else:
-#         pids = await get_nurse_patient_ids(user_id, db)
-#         for pid in pids:
-#             if await redis.hexists(REDIS_ONLINE_USER, pid):
-#                 await sio.emit("user_online_status", data, to=await redis.hget(REDIS_ONLINE_USER, pid))
 async def broadcast_online_status(user_id: str, role: str, online: bool):
     data = {"user_id": user_id, "role": role, "online": online}
     if role == "patient":
@@ -1072,18 +996,6 @@ async def leave_room(sid, data):
 
     # 3. 广播护士离开（通知房间内其他成员，如病人）
     await sio.emit("nurse_leave", room=room_uuid)
-
-#護士如果更新了上下班時間，就給對應的病人通告
-# @sio.event
-# async def nurse_work_time_update(sid,data):
-#     nurse_id = data.get("nurse_id")
-#     if nurse_id:
-#         db = next(get_db())
-#         pids = await get_nurse_patient_ids(nurse_id, db)
-#         # 如果病人在綫就實時推送護士已經修改了工作時間
-#         for pid in pids:
-#             if await redis.hexists(REDIS_ONLINE_USER, pid):
-#                 await sio.emit("nurse_work_time_changed", data, to=await redis.hget(REDIS_ONLINE_USER, pid))
 
 @sio.event
 async def nurse_work_time_update(sid, data):

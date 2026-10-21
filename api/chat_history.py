@@ -715,12 +715,14 @@ async def get_room_all_messages(
         room_id = chat_room.room_id
 
         # 2. 关联查询：该房间下所有会话的消息
-        query = db.query(Message).join(
-            ConversationSession,
-            ConversationSession.session_uuid == Message.session_uuid
-        ).filter(
-            ConversationSession.room_id == room_id
-        )
+        # query = db.query(Message).join(
+        #     ConversationSession,
+        #     ConversationSession.session_uuid == Message.session_uuid
+        # ).filter(
+        #     ConversationSession.room_id == room_id
+        # )
+
+        query = db.query(Message).filter(Message.room_id == room_id)
 
         # 3. 天数限制
         if days_limit > 0:
@@ -794,12 +796,14 @@ async def get_room_recently_messages(
         room_id = chat_room.room_id
 
         # 2. 查询该房间下所有会话的消息
-        query = db.query(Message).join(
-            ConversationSession,
-            ConversationSession.session_uuid == Message.session_uuid
-        ).filter(
-            ConversationSession.room_id == room_id
-        )
+        # query = db.query(Message).join(
+        #     ConversationSession,
+        #     ConversationSession.session_uuid == Message.session_uuid
+        # ).filter(
+        #     ConversationSession.room_id == room_id
+        # )
+
+        query = db.query(Message).filter(Message.room_id == room_id)
 
         total_count = query.count()
 
