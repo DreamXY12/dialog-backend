@@ -693,7 +693,7 @@ async def handle_ai_reply(room_uuid, user_msg, ai_session_id, message_uuid=None,
             logger.error(f"AI 重试超时 60 秒 room={room_uuid}")
 
         if status2 != 200:
-            retry_msg = "AI 重試超時，請點擊重試"
+            retry_msg = "AI 重試超時，請重試"
             await _emit_ai_error(room_uuid, ai_message_uuid, retry_msg, is_timeout=True)
             await redis.delete(lock_key)
             # 入库（保留原有逻辑）
