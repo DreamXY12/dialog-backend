@@ -432,7 +432,8 @@ SUMMARY_ACTION_ORDER = [
     ("send_chat_message", "发送聊天消息"),
     ("view_daily_report", "查看每日报告"),
     ("click_word_cloud",  "点击词云关键词"),
-    ("view_questionnaire","查看调查问卷")
+    ("view_questionnaire","查看调查问卷"),
+    ("view_ai_summary_reference", "查看AI总结引用消息"),
 ]
 
 
