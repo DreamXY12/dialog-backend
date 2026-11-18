@@ -93,3 +93,8 @@ class ExportRequest(BaseModel):
     start_date: date = Field(..., description="开始日期（包含）")
     end_date: date = Field(..., description="结束日期（包含）")
     mode: str = Field(..., description="导出模式: 'combined' 合并到一个txt, 'separate' 按患者分开打包zip")
+
+# ========= 食物上传数据条件导出 =========
+class FoodUploadStatsExportRequest(BaseModel):
+    start_date: Optional[date] = Field(default=None, description="开始日期（含），不传则全量")
+    end_date: Optional[date] = Field(default=None, description="结束日期（含），不传则全量")

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query,HTTPException,UploadFile,File,Body
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, and_, case
+from sqlalchemy import select, func, and_
 from typing import List
 from datetime import date, datetime,time
 from api.s3_service import s3_service
@@ -10,14 +10,14 @@ from sql.people_models import (
     Patient,
     Case,
     FoodImage,
-    ChatRoom,
     Message
 )
 from schema.admin_monitor import (
     PatientMonitorDetail,
     PatientDailyStat,
     PatientSimpleItem,
-    PatientMonitorListResp
+    PatientMonitorListResp,
+    FoodUploadStatsExportRequest,
 )
 # 这里引入你的管理员权限依赖，示例：from core.deps import admin_required
 # from core.deps import admin_required
@@ -678,6 +678,134 @@ def download_day_zip(
             # ！！！重点：这里是标准短横线 "-"，不要复制粘贴带‑的字符串！！！
             "Content-Disposition": f'attachment; filename*=utf-8\'\'{encoded_filename}'
         }
+    )
+
+@router.post("/export-food-upload-stats")
+def export_food_upload_stats(
+    req: FoodUploadStatsExportRequest,
+    db: Session = Depends(get_db),
+    # _ = Depends(admin_required)
+):
+    """
+    只导出满足以下条件的正式受试者患者食物上传数据：
+    - 上传图片天数 >= 15（每天至少 1 张即算 1 天）
+    - 图片总张数 >= 30（按实际图片张数统计，不把 5 分钟内多张合并为 1 次）
+    时间范围：start_date / end_date 同时提供才按范围统计，否则统计全部历史。
+    输出：制表符分隔的 txt（utf-8-sig），可直接粘贴到 Excel。
+    """
+    # ---------- 参数校验 ----------
+    if (req.start_date is None) != (req.end_date is None):
+        raise HTTPException(status_code=400, detail="start_date 和 end_date 必须同时提供或同时为空")
+    if req.start_date and req.end_date and req.start_date > req.end_date:
+        raise HTTPException(status_code=400, detail="开始日期不能晚于结束日期")
+
+    has_range = bool(req.start_date and req.end_date)
+    day_expr = func.date(FoodImage.upload_timestamp)
+
+    # ---------- 第 1 次查询：筛出符合条件（>=15 天 且 >=30 张）的患者 ----------
+    stmt = (
+        select(
+            Patient.patient_id,
+            Patient.subject_code,
+            Patient.first_name,
+            Patient.last_name,
+            Patient.phone,
+            Patient.phone_area_code,
+            func.count(func.distinct(day_expr)).label("upload_days"),
+            func.count(FoodImage.id).label("total_imgs"),
+        )
+        .join(Patient, FoodImage.patient_id == Patient.patient_id)
+        .where(Patient.official_subject_sql_filter())
+    )
+    if has_range:
+        stmt = stmt.where(day_expr.between(req.start_date, req.end_date))
+
+    stmt = (
+        stmt.group_by(
+            Patient.patient_id,
+            Patient.subject_code,
+            Patient.first_name,
+            Patient.last_name,
+            Patient.phone,
+            Patient.phone_area_code,
+        )
+        .having(func.count(func.distinct(day_expr)) >= 15)
+        .having(func.count(FoodImage.id) >= 30)
+        .order_by(Patient.patient_id)
+    )
+
+    rows = db.execute(stmt).all()
+    pid_list = [r.patient_id for r in rows]
+
+    # ---------- 第 2 次查询：批量拿这些患者的「按天明细」 ----------
+    detail_map: dict[int, list[tuple]] = {}
+    if pid_list:
+        stmt_detail = (
+            select(
+                FoodImage.patient_id.label("pid"),
+                day_expr.label("d"),
+                func.count(FoodImage.id).label("cnt"),
+            )
+            .where(FoodImage.patient_id.in_(pid_list))
+        )
+        if has_range:
+            stmt_detail = stmt_detail.where(day_expr.between(req.start_date, req.end_date))
+        stmt_detail = stmt_detail.group_by(FoodImage.patient_id, day_expr).order_by(
+            FoodImage.patient_id, day_expr
+        )
+        for dr in db.execute(stmt_detail).all():
+            detail_map.setdefault(dr.pid, []).append((dr.d, dr.cnt))
+
+    # ---------- 组装输出 ----------
+    header = [
+        "患者ID", "受试者编号", "患者姓名", "电话",
+        "上传图片天数", "图片总张数",
+        "首次上传日期", "末次上传日期", "每天明细(日期:张数)",
+    ]
+    lines: List[str] = ["\t".join(header)]
+
+    for r in rows:
+        phone = remove_area_code(r.phone, r.phone_area_code)
+        details = detail_map.get(r.patient_id, [])
+
+        if details:
+            first_date = details[0][0].strftime("%Y-%m-%d") if hasattr(details[0][0], "strftime") else str(details[0][0])
+            last_date = details[-1][0].strftime("%Y-%m-%d") if hasattr(details[-1][0], "strftime") else str(details[-1][0])
+            daily_str = ";".join(
+                f"{(d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d))}:{cnt}"
+                for d, cnt in details
+            )
+        else:
+            first_date = ""
+            last_date = ""
+            daily_str = ""
+
+        lines.append("\t".join([
+            str(r.patient_id),
+            r.subject_code or "",
+            f"{r.first_name} {r.last_name}",
+            phone,
+            str(r.upload_days),
+            str(r.total_imgs),
+            first_date,
+            last_date,
+            daily_str,
+        ]))
+
+    if len(lines) == 1:
+        lines.append("未找到满足条件的患者（上传天数 >= 15 且 图片总张数 >= 30）。")
+
+    content = "\n".join(lines)
+
+    if has_range:
+        filename = f"food_upload_stats_{req.start_date}_{req.end_date}.txt"
+    else:
+        filename = "food_upload_stats_all.txt"
+
+    return Response(
+        content=content.encode("utf-8-sig"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 @router.post("/export-simple")
