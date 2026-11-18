@@ -24,24 +24,24 @@ MODEL_NAME = "huawei-noah/TinyBERT_4L_zh"
 DEVICE = "cpu"
 
 # 繁 → 简（保证模型输入稳定）
-cc = OpenCC("t2s")
-
-logging.info("加载 TinyBERT 模型中...")
-
-# 1. 加载 tokenizer + 模型
-tokenizer = BertTokenizer.from_pretrained(MODEL_NAME)
-model = BertModel.from_pretrained(MODEL_NAME)
-model.eval()
-
-# 2. INT8 量化（关键：内存暴减）
-model_int8 = torch.quantization.quantize_dynamic(
-    model,
-    {torch.nn.Linear},
-    dtype=torch.qint8
-)
-
-logging.info("TinyBERT INT8 模型加载完成 ✅")
-logging.info(f"模型内存占用极低：≈200MB，适合 4GB 服务器运行")
+# cc = OpenCC("t2s")
+#
+# logging.info("加载 TinyBERT 模型中...")
+#
+# # 1. 加载 tokenizer + 模型
+# tokenizer = BertTokenizer.from_pretrained(MODEL_NAME)
+# model = BertModel.from_pretrained(MODEL_NAME)
+# model.eval()
+#
+# # 2. INT8 量化（关键：内存暴减）
+# model_int8 = torch.quantization.quantize_dynamic(
+#     model,
+#     {torch.nn.Linear},
+#     dtype=torch.qint8
+# )
+#
+# logging.info("TinyBERT INT8 模型加载完成 ✅")
+# logging.info(f"模型内存占用极低：≈200MB，适合 4GB 服务器运行")
 
 # -------------------------------------------------------------------------
 # 输入结构体

@@ -46,7 +46,7 @@ model = SenseVoiceInferenceSession(
     device_id=-1,
     intra_op_num_threads=4
 )
-logging.info("模型加载完成 ✅")
+logging.info("SenseVoice模型加载完成 ✅")
 
 
 # -------------------------------------------------------------------------

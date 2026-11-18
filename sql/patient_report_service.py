@@ -2,7 +2,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 from sql.people_models import Message,ChatRoom  # 你的模型
-from utility.word_cloud import generate_multilang_word_cloud
+# from utility.word_cloud import generate_multilang_word_cloud
 from fastapi import HTTPException  # 增加异常处理
 
 def get_patient_daily_chat_report(
@@ -46,7 +46,7 @@ def get_patient_daily_chat_report(
     chat_count = len(messages)
 
     # 多语言词云
-    top_topics = generate_multilang_word_cloud(contents)
+    #top_topics = generate_multilang_word_cloud(contents)
 
     return {
         "room_uuid": room_uuid,
@@ -55,7 +55,7 @@ def get_patient_daily_chat_report(
         "report_date": report_date.isoformat(),
         "patient_chat_count": chat_count,
         "has_patient_chat_today": chat_count > 0,
-        "top_topics": top_topics
+        # "top_topics": top_topics
 
         # 你后面要加的 健康数据、检测记录 我也可以帮你加进来
     }
